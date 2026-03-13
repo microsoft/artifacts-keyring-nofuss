@@ -36,7 +36,6 @@ Artifacts feed, this backend:
 |---|------|-------------|
 | 1 | **Azure CLI** | Runs `az account get-access-token`. Most common for local dev. |
 | 2 | **Managed Identity** | Queries the Azure IMDS endpoint. For VMs/containers on Azure. |
-| 3 | **Browser** | Opens system browser for OAuth2 login (authorization code + PKCE). |
 
 ## Configuration
 
@@ -46,7 +45,7 @@ By default, providers are tried in the order above. To force a specific one:
 
 ```bash
 # Environment variable
-export ARTIFACTS_KEYRING_NOFUSS_PROVIDER=azure_cli  # or: managed_identity, browser
+export ARTIFACTS_KEYRING_NOFUSS_PROVIDER=azure_cli  # or: managed_identity
 ```
 
 Or in `~/.config/python_keyring/keyringrc.cfg`:

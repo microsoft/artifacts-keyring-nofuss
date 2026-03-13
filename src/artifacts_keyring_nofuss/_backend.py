@@ -14,7 +14,6 @@ import requests
 from . import _constants as C
 from . import _provider, _session_token
 from ._azure_cli import AzureCliProvider
-from ._browser import BrowserProvider
 from ._managed_identity import ManagedIdentityProvider
 
 log = logging.getLogger(__name__)
@@ -22,10 +21,9 @@ log = logging.getLogger(__name__)
 PROVIDERS = {
     "azure_cli": AzureCliProvider,
     "managed_identity": ManagedIdentityProvider,
-    "browser": BrowserProvider,
 }
 
-DEFAULT_CHAIN = ["azure_cli", "managed_identity", "browser"]
+DEFAULT_CHAIN = ["azure_cli", "managed_identity"]
 
 
 def _is_supported(service: str) -> bool:
