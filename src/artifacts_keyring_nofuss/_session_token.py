@@ -19,8 +19,7 @@ def exchange(bearer_token: str, vsts_authority: str) -> str | None:
     url = (
         f"{vsts_authority.rstrip('/')}/"
         "_apis/Token/SessionTokens"
-        "?tokenType=compact"
-        "&api-version=5.0-preview.1"
+        "?api-version=5.0-preview.1"
     )
 
     headers = {
