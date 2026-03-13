@@ -1,6 +1,8 @@
 """No-fuss, pure-Python keyring backend for Azure DevOps Artifacts feeds."""
 
-__version__ = "0.1.1"
+from importlib.metadata import version
+
+__version__ = version(__name__)
 
 from ._backend import ArtifactsKeyringBackend
 
