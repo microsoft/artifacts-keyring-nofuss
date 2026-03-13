@@ -11,6 +11,22 @@ from . import _constants as C
 log = logging.getLogger(__name__)
 
 
+def _current_account() -> str | None:
+    """Return the UPN or app ID of the currently logged-in az CLI account."""
+    try:
+        result = subprocess.run(
+            ["az", "account", "show", "--query", "user.name", "--output", "tsv"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if result.returncode == 0:
+            return result.stdout.strip() or None
+    except Exception:
+        pass
+    return None
+
+
 class AzureCliProvider:
     name = "azure_cli"
 
@@ -36,7 +52,15 @@ class AzureCliProvider:
             return None
 
         if result.returncode != 0:
-            log.debug("az CLI failed (rc=%d): %s", result.returncode, result.stderr.strip())
+            account = _current_account()
+            stderr = result.stderr.strip()
+            if account:
+                log.warning(
+                    "az CLI auth failed for account %r (tenant %s): %s",
+                    account, tenant_id, stderr,
+                )
+            else:
+                log.warning("az CLI auth failed (not logged in?): %s", stderr)
             return None
 
         try:

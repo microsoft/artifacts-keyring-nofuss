@@ -41,6 +41,21 @@ def exchange(bearer_token: str, vsts_authority: str) -> str | None:
             timeout=30,
         )
         resp.raise_for_status()
+    except requests.HTTPError:
+        detail = ""
+        try:
+            detail = resp.json().get("message", "")
+        except Exception:
+            pass
+        if resp.status_code == 401:
+            log.warning(
+                "session token exchange returned 401 — bearer token was "
+                "rejected by Azure DevOps. %s", detail,
+            )
+        else:
+            log.debug("session token exchange failed (HTTP %s): %s",
+                       resp.status_code, detail, exc_info=True)
+        return None
     except requests.RequestException:
         log.debug("session token exchange failed", exc_info=True)
         return None

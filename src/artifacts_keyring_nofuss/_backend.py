@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import base64
 import configparser
+import json
 import logging
 import os
 import urllib.parse
@@ -24,6 +26,17 @@ PROVIDERS = {
 }
 
 DEFAULT_CHAIN = ["azure_cli", "managed_identity"]
+
+
+def _account_from_token(bearer: str) -> str | None:
+    """Extract the user principal name from a JWT bearer token (no validation)."""
+    try:
+        payload = bearer.split(".")[1]
+        payload += "=" * (-len(payload) % 4)
+        claims = json.loads(base64.urlsafe_b64decode(payload))
+        return claims.get("upn") or claims.get("unique_name") or claims.get("oid")
+    except Exception:
+        return None
 
 
 def _is_supported(service: str) -> bool:
@@ -126,15 +139,24 @@ class ArtifactsKeyringBackend(keyring.backend.KeyringBackend):
         # Get bearer token
         bearer = _provider.run_chain(providers, tenant_id)
         if bearer is None:
-            log.warning("all providers failed for %s", service)
+            log.warning("all auth providers failed for %s — are you logged in? "
+                        "Try: az login --tenant %s", service, tenant_id)
             return None
+
+        account = _account_from_token(bearer)
 
         # Exchange for session token
         session_tok = _session_token.exchange(bearer, vsts_authority)
         if session_tok is None:
-            log.warning("session token exchange failed for %s", service)
+            if account:
+                log.warning("session token exchange failed for %s "
+                            "(authenticated as %s)", service, account)
+            else:
+                log.warning("session token exchange failed for %s", service)
             return None
 
+        if account:
+            log.debug("authenticated to %s as %s", service, account)
         cred = keyring.credentials.SimpleCredential("VssSessionToken", session_tok)
         self._cache[service] = cred
         return cred
