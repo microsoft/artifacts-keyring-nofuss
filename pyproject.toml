@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "artifacts-keyring-nofuss"
+version = "0.1.0"
+description = "No-fuss, pure-Python keyring backend for Azure DevOps Artifacts feeds"
+readme = "README.md"
+requires-python = ">=3.9"
+license = "MIT"
+authors = [
+    { name = "msr-central" },
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Build Tools",
+    "Topic :: System :: Systems Administration :: Authentication/Directory",
+]
+keywords = ["keyring", "azure", "devops", "artifacts", "pip", "authentication"]
+dependencies = [
+    "keyring>=23.0",
+    "requests>=2.20",
+]
+
+[project.urls]
+Homepage = "https://github.com/msr-central/artifacts-keyring-nofuss"
+Repository = "https://github.com/msr-central/artifacts-keyring-nofuss"
+Issues = "https://github.com/msr-central/artifacts-keyring-nofuss/issues"
+
+[project.entry-points."keyring.backends"]
+artifacts-keyring-nofuss = "artifacts_keyring_nofuss:ArtifactsKeyringBackend"
