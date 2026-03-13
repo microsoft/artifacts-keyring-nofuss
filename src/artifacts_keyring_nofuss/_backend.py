@@ -20,12 +20,20 @@ from ._managed_identity import ManagedIdentityProvider
 
 log = logging.getLogger(__name__)
 
-PROVIDERS = {
+PROVIDERS: dict[str, type] = {
     "azure_cli": AzureCliProvider,
     "managed_identity": ManagedIdentityProvider,
 }
 
 DEFAULT_CHAIN = ["azure_cli", "managed_identity"]
+
+# Broker provider is optional — only available when msal[broker] is installed.
+try:
+    from ._broker import BrokerProvider
+    PROVIDERS["broker"] = BrokerProvider
+    DEFAULT_CHAIN.append("broker")
+except ImportError:
+    pass
 
 
 def _account_from_token(bearer: str) -> str | None:

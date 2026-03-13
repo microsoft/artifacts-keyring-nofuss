@@ -32,6 +32,9 @@ dependencies = [
     "requests>=2.20",
 ]
 
+[project.optional-dependencies]
+broker = ["msal[broker]>=1.20"]
+
 [project.urls]
 Homepage = "https://github.com/msr-central/artifacts-keyring-nofuss"
 Repository = "https://github.com/msr-central/artifacts-keyring-nofuss"

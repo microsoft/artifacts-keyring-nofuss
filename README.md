@@ -6,18 +6,6 @@ Replaces the official `artifacts-keyring` (which wraps a ~100 MB .NET binary) wi
 no-fuss implementation that covers the most common Linux auth scenarios using raw
 HTTP — no `msal`, no `azure-identity`, no .NET.
 
-## Install
-
-```bash
-pip install artifacts-keyring-nofuss
-```
-
-Or for development:
-
-```bash
-pip install -e .
-```
-
 ## How it works
 
 When pip (or twine, etc.) queries the keyring for credentials to an Azure DevOps
@@ -36,6 +24,23 @@ Artifacts feed, this backend:
 |---|------|-------------|
 | 1 | **Azure CLI** | Runs `az account get-access-token`. Most common for local dev. |
 | 2 | **Managed Identity** | Queries the Azure IMDS endpoint. For VMs/containers on Azure. |
+| 3 | **Broker** *(optional)* | MSAL with platform broker (WAM/Identity Broker). For Intune-managed devices. |
+
+The broker provider is only available when the optional `broker` extra is installed
+(see below). It uses the platform's native auth broker for SSO on Entra ID-joined
+devices, and caches tokens on disk for subsequent runs.
+
+## Install
+
+```bash
+pip install artifacts-keyring-nofuss
+```
+
+With broker support (for Intune-managed devices):
+
+```bash
+pip install "artifacts-keyring-nofuss[broker]"
+```
 
 ## Configuration
 
@@ -45,7 +50,7 @@ By default, providers are tried in the order above. To force a specific one:
 
 ```bash
 # Environment variable
-export ARTIFACTS_KEYRING_NOFUSS_PROVIDER=azure_cli  # or: managed_identity
+export ARTIFACTS_KEYRING_NOFUSS_PROVIDER=azure_cli  # or: managed_identity, broker
 ```
 
 Or in `~/.config/python_keyring/keyringrc.cfg`:
