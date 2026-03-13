@@ -20,6 +20,7 @@ class AzureCliProvider:
                 [
                     "az", "account", "get-access-token",
                     "--resource", C.RESOURCE_ID,
+                    "--tenant", tenant_id,
                     "--query", "accessToken",
                     "--output", "json",
                 ],

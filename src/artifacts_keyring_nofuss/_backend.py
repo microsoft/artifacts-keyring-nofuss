@@ -102,6 +102,13 @@ class ArtifactsKeyringBackend(keyring.backend.KeyringBackend):
         if not _is_supported(service):
             return None
 
+        # Validate provider config early so typos are surfaced before
+        # any network calls.
+        chosen = _configured_provider()
+        if chosen and chosen not in PROVIDERS:
+            log.warning("unknown provider %r, valid: %s", chosen, ", ".join(PROVIDERS))
+            return None
+
         if service in self._cache:
             return self._cache[service]
 
@@ -113,11 +120,7 @@ class ArtifactsKeyringBackend(keyring.backend.KeyringBackend):
         tenant_id, vsts_authority = info
 
         # Build provider list
-        chosen = _configured_provider()
         if chosen:
-            if chosen not in PROVIDERS:
-                log.warning("unknown provider %r, valid: %s", chosen, ", ".join(PROVIDERS))
-                return None
             providers = [PROVIDERS[chosen]()]
         else:
             providers = [PROVIDERS[name]() for name in DEFAULT_CHAIN]

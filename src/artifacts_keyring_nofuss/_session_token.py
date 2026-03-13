@@ -23,6 +23,14 @@ def exchange(bearer_token: str, vsts_authority: str) -> str | None:
         "&api-version=5.0-preview.1"
     )
 
+    headers = {
+        "Authorization": f"Bearer {bearer_token}",
+        # Prevent Azure DevOps from returning 302 redirects to the
+        # sign-in page; surface a proper 401 instead so we can
+        # report errors and retry.
+        "X-TFS-FedAuthRedirect": "Suppress",
+    }
+
     try:
         resp = requests.post(
             url,
@@ -30,7 +38,7 @@ def exchange(bearer_token: str, vsts_authority: str) -> str | None:
                 "scope": "vso.packaging",
                 "displayName": "artifacts-keyring-nofuss",
             },
-            headers={"Authorization": f"Bearer {bearer_token}"},
+            headers=headers,
             timeout=30,
         )
         resp.raise_for_status()
@@ -38,5 +46,9 @@ def exchange(bearer_token: str, vsts_authority: str) -> str | None:
         log.debug("session token exchange failed", exc_info=True)
         return None
 
-    token = resp.json().get("token")
+    try:
+        token = resp.json().get("token")
+    except (ValueError, AttributeError):
+        log.debug("session token response was not valid JSON")
+        return None
     return token if token else None

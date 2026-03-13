@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "artifacts-keyring-nofuss"
-version = "0.1.0"
+version = "0.1.1"
 description = "No-fuss, pure-Python keyring backend for Azure DevOps Artifacts feeds"
 readme = "README.md"
 requires-python = ">=3.9"
