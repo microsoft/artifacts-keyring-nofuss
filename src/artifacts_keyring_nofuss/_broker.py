@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 import os
-import sys
 
 from . import _constants as C
 
@@ -56,24 +55,31 @@ class BrokerProvider:
         cache = _load_cache()
         authority = f"https://login.microsoftonline.com/{tenant_id}"
 
-        # Try native broker for silent SSO (cached device credentials).
+        # Try native broker for silent device SSO.
+        # MSAL's get_accounts() only returns accounts from its own cache, not
+        # the device SSO session.  We call msal.broker._signin_silently which
+        # invokes pymsalruntime.signin_silently — that uses the OS-level
+        # identity broker (WAM / microsoft-identity-broker) directly.
         try:
-            app = msal.PublicClientApplication(
-                client_id=C.CLIENT_ID,
+            from msal.broker import _signin_silently
+
+            log.debug("broker: trying native broker silent sign-in (device SSO)")
+            result = _signin_silently(
                 authority=authority,
-                token_cache=cache,
-                enable_broker_on_windows=sys.platform == "win32",
-                enable_broker_on_linux=sys.platform.startswith("linux"),
+                client_id=C.CLIENT_ID,
+                scopes=C.SCOPE,
             )
-            log.debug("broker: trying native broker silent auth")
-            accounts = app.get_accounts()
-            if accounts:
-                log.debug("broker: found account %s", accounts[0].get("username", "?"))
-                result = app.acquire_token_silent(C.SCOPE, account=accounts[0])
-                if result and "access_token" in result:
-                    log.debug("broker: got token from native broker cache")
-                    _save_cache(cache)
-                    return result["access_token"]
+            if result and "access_token" in result:
+                log.debug("broker: got token via device SSO")
+                return result["access_token"]
+            if result:
+                log.debug(
+                    "broker: device SSO failed: %s %s",
+                    result.get("error", ""),
+                    result.get("error_description", ""),
+                )
+        except ImportError:
+            log.debug("native broker (pymsalruntime) not installed")
         except Exception:
             log.debug("native broker unavailable", exc_info=True)
 
