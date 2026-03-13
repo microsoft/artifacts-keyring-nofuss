@@ -131,6 +131,38 @@ When Microsoft pre-authorizes narrow scopes on the Azure Artifacts client ID
 7. **Update `pyproject.toml`** — add `msal>=1.20` to dependencies, since the
    session-token version only needs `keyring` + `requests`.
 
+## Using Narrow Scopes with a Custom App Registration
+
+Narrow scopes like `vso.packaging` **do work** — but only with your own Entra
+app registration, not the first-party Azure Artifacts client ID. A
+[Stack Overflow answer](https://stackoverflow.com/questions/78336900/azure-devops-python-correct-scopes-for-getting-a-token)
+confirms this with a working example:
+
+1. **Register an app** in Entra ID (Azure Portal → App registrations)
+2. **Add API permission**: Azure DevOps → Delegated → the `vso.*` scopes you
+   need (e.g. `vso.packaging` for read-only packaging, `vso.code` for code)
+3. **Add redirect URI**: Under "Mobile and Desktop applications", add
+   `http://localhost` and enable public client flows
+4. **Use the fully qualified scope** in MSAL:
+   ```python
+   SCOPE = ["499b84ac-1321-427f-aa17-267ca6975798/vso.packaging"]
+   ```
+5. The resulting token's `scp` claim will show only the granted permissions
+   (e.g. `vso.packaging`) instead of `user_impersonation`
+
+The key insight: the first-party client ID `d5a56ea4-...` cannot request narrow
+scopes (fails with AADSTS65002), but a custom app registration can — after
+configuring the appropriate API permissions in Entra.
+
+For this package, using a custom app registration would mean either:
+- Requiring users to register their own app and pass a client ID (via env var)
+- Registering a shared app (with admin consent in each tenant)
+
+The `test_narrow_scopes.py` script in the repo root can be used to verify:
+```bash
+AZURE_CLIENT_ID=<your-app-id> python test_narrow_scopes.py
+```
+
 ## Key Files on `entra-tokens` Branch
 
 - `src/artifacts_keyring_nofuss/_msal_auth.py` — MSAL flows (silent, browser)
@@ -142,6 +174,7 @@ When Microsoft pre-authorizes narrow scopes on the Azure Artifacts client ID
 ## References
 
 - [Azure DevOps custom scopes](https://devblogs.microsoft.com/devops/azure-devops-now-supports-custom-azure-active-directory-entra-scopes/)
+- [SO: Correct scopes for getting a token](https://stackoverflow.com/questions/78336900/azure-devops-python-correct-scopes-for-getting-a-token) — confirms narrow scopes work with custom app registrations
 - [MSAL Python docs](https://msal-python.readthedocs.io/)
 - [artifacts-credprovider source](https://github.com/microsoft/artifacts-credprovider)
 - [artifacts-keyring v2 branch](https://github.com/microsoft/artifacts-keyring/tree/users/embetten/prepare-2.0.0)
