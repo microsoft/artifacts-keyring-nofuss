@@ -82,3 +82,13 @@ Any URL whose host matches one of:
 - `pkgs.visualstudio.com`
 - `pkgs.codedev.ms`
 - `pkgs.vsts.me`
+
+## Troubleshooting
+
+Enable verbose debug output to see the full authentication flow:
+
+```bash
+ARTIFACTS_KEYRING_NOFUSS_DEBUG=1 pip install --index-url https://pkgs.dev.azure.com/{org}/_packaging/{feed}/pypi/simple/ my-package
+```
+
+This prints the provider chain, token exchange steps, and any errors to stderr.
