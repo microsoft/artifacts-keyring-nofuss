@@ -6,8 +6,8 @@ import base64
 import configparser
 import json
 import logging
-import os
 import urllib.parse
+from pathlib import Path
 
 import keyring.backend
 import keyring.credentials
@@ -20,7 +20,7 @@ from ._managed_identity import ManagedIdentityProvider
 
 log = logging.getLogger(__name__)
 
-PROVIDERS = {
+PROVIDERS: dict[str, type[_provider.TokenProvider]] = {
     "azure_cli": AzureCliProvider,
     "managed_identity": ManagedIdentityProvider,
 }
@@ -33,7 +33,7 @@ def _account_from_token(bearer: str) -> str | None:
     try:
         payload = bearer.split(".")[1]
         payload += "=" * (-len(payload) % 4)
-        claims = json.loads(base64.urlsafe_b64decode(payload))
+        claims: dict[str, str] = json.loads(base64.urlsafe_b64decode(payload))
         return claims.get("upn") or claims.get("unique_name") or claims.get("oid")
     except Exception:
         return None
@@ -43,7 +43,7 @@ def _is_supported(service: str) -> bool:
     """Return True if *service* looks like an Azure DevOps Artifacts feed URL."""
     try:
         netloc = urllib.parse.urlparse(service).hostname or ""
-    except Exception:
+    except ValueError:
         return False
     return netloc in C.SUPPORTED_NETLOCS
 
@@ -64,8 +64,8 @@ def _discover(service: str) -> tuple[str, str] | None:
 
     # Parse tenant from: Bearer authorization_uri=https://login.microsoftonline.com/{tenant}
     tenant_id = ""
-    for part in www_auth.split(","):
-        part = part.strip()
+    for raw_part in www_auth.split(","):
+        part = raw_part.strip()
         if "authorization_uri=" in part:
             uri = part.split("authorization_uri=", 1)[1].strip().strip('"')
             # URI is like https://login.microsoftonline.com/{tenant_id}
@@ -73,7 +73,11 @@ def _discover(service: str) -> tuple[str, str] | None:
             break
 
     if not tenant_id or not vsts_authority:
-        log.debug("discovery incomplete: tenant=%r authority=%r", tenant_id, vsts_authority)
+        log.debug(
+            "discovery incomplete: tenant=%r authority=%r",
+            tenant_id,
+            vsts_authority,
+        )
         return None
 
     return tenant_id, vsts_authority
@@ -81,16 +85,18 @@ def _discover(service: str) -> tuple[str, str] | None:
 
 def _configured_provider() -> str | None:
     """Read provider override from env var or keyring config."""
+    import os  # noqa: PLC0415
+
     env = os.environ.get("ARTIFACTS_KEYRING_NOFUSS_PROVIDER", "").strip()
     if env:
         return env
 
     # Try keyring config file
     for path in [
-        os.path.join(os.getcwd(), "keyringrc.cfg"),
-        os.path.expanduser("~/.config/python_keyring/keyringrc.cfg"),
+        Path.cwd() / "keyringrc.cfg",
+        Path("~/.config/python_keyring/keyringrc.cfg").expanduser(),
     ]:
-        if os.path.isfile(path):
+        if path.is_file():
             cfg = configparser.ConfigParser()
             cfg.read(path)
             val = cfg.get("artifacts_keyring_nofuss", "provider", fallback="").strip()
@@ -101,14 +107,16 @@ def _configured_provider() -> str | None:
 
 
 class ArtifactsKeyringBackend(keyring.backend.KeyringBackend):
-    priority = 9.9  # type: ignore[assignment]
+    priority = 9.9  # keyring expects numeric
 
     def __init__(self) -> None:
-        super().__init__()
+        super().__init__()  # type: ignore[no-untyped-call]
         self._cache: dict[str, keyring.credentials.SimpleCredential] = {}
 
-    def get_credential(
-        self, service: str, username: str | None
+    def get_credential(  # noqa: PLR0911
+        self,
+        service: str,
+        username: str | None,  # noqa: ARG002
     ) -> keyring.credentials.SimpleCredential | None:
         if not _is_supported(service):
             return None
@@ -132,15 +140,19 @@ class ArtifactsKeyringBackend(keyring.backend.KeyringBackend):
 
         # Build provider list
         if chosen:
-            providers = [PROVIDERS[chosen]()]
+            chain: list[_provider.TokenProvider] = [PROVIDERS[chosen]()]
         else:
-            providers = [PROVIDERS[name]() for name in DEFAULT_CHAIN]
+            chain = [PROVIDERS[name]() for name in DEFAULT_CHAIN]
 
         # Get bearer token
-        bearer = _provider.run_chain(providers, tenant_id)
+        bearer = _provider.run_chain(chain, tenant_id)
         if bearer is None:
-            log.warning("all auth providers failed for %s — are you logged in? "
-                        "Try: az login --tenant %s", service, tenant_id)
+            log.warning(
+                "all auth providers failed for %s — are you logged in? "
+                "Try: az login --tenant %s",
+                service,
+                tenant_id,
+            )
             return None
 
         account = _account_from_token(bearer)
@@ -149,8 +161,11 @@ class ArtifactsKeyringBackend(keyring.backend.KeyringBackend):
         session_tok = _session_token.exchange(bearer, vsts_authority)
         if session_tok is None:
             if account:
-                log.warning("session token exchange failed for %s "
-                            "(authenticated as %s)", service, account)
+                log.warning(
+                    "session token exchange failed for %s (authenticated as %s)",
+                    service,
+                    account,
+                )
             else:
                 log.warning("session token exchange failed for %s", service)
             return None
@@ -166,7 +181,9 @@ class ArtifactsKeyringBackend(keyring.backend.KeyringBackend):
         return cred.password if cred else None
 
     def set_password(self, service: str, username: str, password: str) -> None:
-        raise NotImplementedError("read-only backend")
+        msg = "read-only backend"
+        raise NotImplementedError(msg)
 
     def delete_password(self, service: str, username: str) -> None:
-        raise NotImplementedError("read-only backend")
+        msg = "read-only backend"
+        raise NotImplementedError(msg)

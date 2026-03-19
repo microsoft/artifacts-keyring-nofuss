@@ -7,7 +7,7 @@ name = "artifacts-keyring-nofuss"
 dynamic = ["version"]
 description = "No-fuss, pure-Python keyring backend for Azure DevOps Artifacts feeds"
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 license = "MIT"
 authors = [
     { name = "msr-central" },
@@ -18,7 +18,6 @@ classifiers = [
 
     "Operating System :: POSIX :: Linux",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
@@ -39,5 +38,37 @@ Issues = "https://github.com/msr-central/artifacts-keyring-nofuss/issues"
 
 [project.entry-points."keyring.backends"]
 artifacts-keyring-nofuss = "artifacts_keyring_nofuss:ArtifactsKeyringBackend"
+
+[project.optional-dependencies]
+dev = [
+    "mypy>=1.10",
+    "pre-commit>=4.0",
+    "ruff>=0.7",
+    "types-requests>=2.20",
+]
+
+[tool.ruff]
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["ALL"]
+ignore = [
+    "COM812",   # trailing-comma — conflicts with ruff formatter
+    "ISC001",   # single-line-implicit-string-concat — conflicts with ruff formatter
+    "D",        # pydocstyle — docstring coverage is intentionally minimal
+    "N812",     # lowercase-imported-as-non-lowercase — `_constants as C` is intentional
+    "S603",     # subprocess-without-shell-equals-true — we only call `az`
+    "S607",     # start-process-with-partial-path — we intentionally call `az` by name
+    "BLE001",   # blind-except — broad catches are the core graceful-degradation pattern
+    "S110",     # try-except-pass — intentional for best-effort helpers
+    "PLR2004",  # magic-value-comparison — HTTP status codes are self-documenting
+]
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["E402"]  # module-level import not at top of file (after logging setup)
+
+[tool.mypy]
+strict = true
+files = ["src"]
 
 [tool.setuptools_scm]
