@@ -7,6 +7,7 @@ import configparser
 import json
 import logging
 import os
+import time
 import urllib.parse
 
 import keyring.backend
@@ -19,6 +20,9 @@ from ._azure_cli import AzureCliProvider
 from ._managed_identity import ManagedIdentityProvider
 
 log = logging.getLogger(__name__)
+
+# Cached credentials expire after 50 minutes (tokens typically live 60–75 min)
+_CACHE_TTL_SECONDS = 50 * 60
 
 PROVIDERS = {
     "azure_cli": AzureCliProvider,
@@ -48,6 +52,25 @@ def _is_supported(service: str) -> bool:
     return netloc in C.SUPPORTED_NETLOCS
 
 
+def _validate_auth_uri(uri: str) -> bool:
+    """Return True if *uri* points to a known Azure AD login endpoint."""
+    try:
+        hostname = urllib.parse.urlparse(uri).hostname or ""
+    except Exception:
+        return False
+    return hostname in C.ALLOWED_AUTH_HOSTS
+
+
+def _validate_vsts_authority(url: str) -> bool:
+    """Return True if *url* points to a known Azure DevOps authority host."""
+    try:
+        parsed = urllib.parse.urlparse(url)
+    except Exception:
+        return False
+    hostname = parsed.hostname or ""
+    return hostname in C.ALLOWED_VSTS_AUTHORITY_HOSTS and parsed.scheme == "https"
+
+
 def _discover(service: str) -> tuple[str, str] | None:
     """GET the feed URL unauthenticated to discover tenant and authority.
 
@@ -68,12 +91,19 @@ def _discover(service: str) -> tuple[str, str] | None:
         part = part.strip()
         if "authorization_uri=" in part:
             uri = part.split("authorization_uri=", 1)[1].strip().strip('"')
+            if not _validate_auth_uri(uri):
+                log.warning("discovery returned untrusted authorization_uri: %s", uri)
+                return None
             # URI is like https://login.microsoftonline.com/{tenant_id}
             tenant_id = uri.rstrip("/").rsplit("/", 1)[-1]
             break
 
     if not tenant_id or not vsts_authority:
         log.debug("discovery incomplete: tenant=%r authority=%r", tenant_id, vsts_authority)
+        return None
+
+    if not _validate_vsts_authority(vsts_authority):
+        log.warning("discovery returned untrusted authority endpoint: %s", vsts_authority)
         return None
 
     return tenant_id, vsts_authority
@@ -85,17 +115,14 @@ def _configured_provider() -> str | None:
     if env:
         return env
 
-    # Try keyring config file
-    for path in [
-        os.path.join(os.getcwd(), "keyringrc.cfg"),
-        os.path.expanduser("~/.config/python_keyring/keyringrc.cfg"),
-    ]:
-        if os.path.isfile(path):
-            cfg = configparser.ConfigParser()
-            cfg.read(path)
-            val = cfg.get("artifacts_keyring_nofuss", "provider", fallback="").strip()
-            if val:
-                return val
+    # Try keyring config file (user home only — CWD is not trusted)
+    path = os.path.expanduser("~/.config/python_keyring/keyringrc.cfg")
+    if os.path.isfile(path):
+        cfg = configparser.ConfigParser()
+        cfg.read(path)
+        val = cfg.get("artifacts_keyring_nofuss", "provider", fallback="").strip()
+        if val:
+            return val
 
     return None
 
@@ -105,7 +132,7 @@ class ArtifactsKeyringBackend(keyring.backend.KeyringBackend):
 
     def __init__(self) -> None:
         super().__init__()
-        self._cache: dict[str, keyring.credentials.SimpleCredential] = {}
+        self._cache: dict[str, tuple[keyring.credentials.SimpleCredential, float]] = {}
 
     def get_credential(
         self, service: str, username: str | None
@@ -120,8 +147,12 @@ class ArtifactsKeyringBackend(keyring.backend.KeyringBackend):
             log.warning("unknown provider %r, valid: %s", chosen, ", ".join(PROVIDERS))
             return None
 
-        if service in self._cache:
-            return self._cache[service]
+        cached = self._cache.get(service)
+        if cached is not None:
+            cred, ts = cached
+            if time.monotonic() - ts < _CACHE_TTL_SECONDS:
+                return cred
+            del self._cache[service]
 
         # Discover tenant + authority
         info = _discover(service)
@@ -158,7 +189,7 @@ class ArtifactsKeyringBackend(keyring.backend.KeyringBackend):
         if account:
             log.debug("authenticated to %s as %s", service, account)
         cred = keyring.credentials.SimpleCredential("VssSessionToken", session_tok)
-        self._cache[service] = cred
+        self._cache[service] = (cred, time.monotonic())
         return cred
 
     def get_password(self, service: str, username: str | None) -> str | None:
