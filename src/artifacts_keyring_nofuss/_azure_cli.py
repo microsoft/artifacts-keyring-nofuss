@@ -19,10 +19,11 @@ def _current_account() -> str | None:
             capture_output=True,
             text=True,
             timeout=10,
+            check=False,
         )
         if result.returncode == 0:
             return result.stdout.strip() or None
-    except Exception:
+    except (FileNotFoundError, subprocess.SubprocessError):
         pass
     return None
 
@@ -34,15 +35,22 @@ class AzureCliProvider:
         try:
             result = subprocess.run(
                 [
-                    "az", "account", "get-access-token",
-                    "--resource", C.RESOURCE_ID,
-                    "--tenant", tenant_id,
-                    "--query", "accessToken",
-                    "--output", "json",
+                    "az",
+                    "account",
+                    "get-access-token",
+                    "--resource",
+                    C.RESOURCE_ID,
+                    "--tenant",
+                    tenant_id,
+                    "--query",
+                    "accessToken",
+                    "--output",
+                    "json",
                 ],
                 capture_output=True,
                 text=True,
                 timeout=30,
+                check=False,
             )
         except FileNotFoundError:
             log.debug("az CLI not found on PATH")
@@ -57,7 +65,9 @@ class AzureCliProvider:
             if account:
                 log.warning(
                     "az CLI auth failed for account %r (tenant %s): %s",
-                    account, tenant_id, stderr,
+                    account,
+                    tenant_id,
+                    stderr,
                 )
             else:
                 log.warning("az CLI auth failed (not logged in?): %s", stderr)

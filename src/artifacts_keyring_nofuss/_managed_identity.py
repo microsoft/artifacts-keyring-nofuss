@@ -18,7 +18,7 @@ IMDS_TIMEOUT = 2  # fail fast on non-Azure machines
 class ManagedIdentityProvider:
     name = "managed_identity"
 
-    def get_token(self, tenant_id: str) -> str | None:
+    def get_token(self, tenant_id: str) -> str | None:  # noqa: ARG002
         params: dict[str, str] = {
             "resource": C.RESOURCE_ID,
             "api-version": "2018-02-01",
@@ -41,5 +41,4 @@ class ManagedIdentityProvider:
             log.debug("IMDS request failed", exc_info=True)
             return None
 
-        token = resp.json().get("access_token")
-        return token if token else None
+        return resp.json().get("access_token") or None
