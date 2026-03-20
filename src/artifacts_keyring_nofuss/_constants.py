@@ -22,12 +22,17 @@ ALLOWED_AUTH_HOSTS = frozenset(
     }
 )
 
-# Allowed Azure DevOps authority hosts (where bearer tokens may be sent)
+# Allowed Azure DevOps authority hosts (where bearer tokens may be sent).
+# Both the "app.vssps.*" (legacy) and "vssps.*" (current) variants are used.
 ALLOWED_VSTS_AUTHORITY_HOSTS = frozenset(
     {
         "app.vssps.visualstudio.com",
         "app.vssps.dev.azure.com",
         "app.vssps.codedev.ms",
         "app.vssps.vsts.me",
+        "vssps.visualstudio.com",
+        "vssps.dev.azure.com",
+        "vssps.codedev.ms",
+        "vssps.vsts.me",
     }
 )
