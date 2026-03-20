@@ -96,7 +96,13 @@ class TestValidateVstsAuthority:
             "https://app.vssps.dev.azure.com",
             "https://app.vssps.codedev.ms",
             "https://app.vssps.vsts.me",
+            "https://vssps.visualstudio.com",
+            "https://vssps.dev.azure.com",
+            "https://vssps.codedev.ms",
+            "https://vssps.vsts.me",
             "https://app.vssps.visualstudio.com/",  # trailing slash OK
+            "https://vssps.dev.azure.com/my-org",  # org-name path OK
+            "https://vssps.dev.azure.com/my-org/",  # trailing slash OK
         ],
     )
     def test_trusted_authorities(self, url: str) -> None:
@@ -112,7 +118,7 @@ class TestValidateVstsAuthority:
             "",
             # Port/path/userinfo edge cases
             "https://app.vssps.visualstudio.com:444",  # non-default port
-            "https://app.vssps.visualstudio.com/deep/path",  # non-root path
+            "https://vssps.dev.azure.com/org/deep/path",  # multi-segment path
             "https://user:pass@app.vssps.visualstudio.com",  # userinfo
         ],
     )

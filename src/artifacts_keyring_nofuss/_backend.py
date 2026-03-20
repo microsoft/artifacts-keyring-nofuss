@@ -78,15 +78,21 @@ def _validate_auth_uri(uri: str) -> bool:
 
 
 def _validate_vsts_authority(url: str) -> bool:
-    """Return True if *url* is a clean HTTPS origin on a known Azure DevOps host."""
+    """Return True if *url* is a clean HTTPS origin on a known Azure DevOps host.
+
+    The authority URL typically includes an org-name path segment
+    (e.g. ``https://vssps.dev.azure.com/my-org/``).  We allow a single
+    path segment but reject deeper paths to prevent path-traversal tricks.
+    """
     try:
         parsed = urllib.parse.urlparse(url)
     except Exception:
         return False
     if not _is_safe_origin(parsed, C.ALLOWED_VSTS_AUTHORITY_HOSTS):
         return False
-    # Authority should be an origin, not a deep path
-    return parsed.path in ("", "/")
+    # Allow root or a single path segment (the org name): "/org" or "/org/"
+    path = parsed.path.strip("/")
+    return "/" not in path
 
 
 def _discover(service: str) -> tuple[str, str] | None:
