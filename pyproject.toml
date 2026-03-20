@@ -30,6 +30,9 @@ keywords = ["keyring", "azure", "devops", "artifacts", "pip", "authentication"]
 dependencies = [
     "keyring>=23.0",
     "requests>=2.20",
+    # jaraco.context >=6.0 uses backports.tarfile on Python <3.12 but
+    # doesn't declare it — add it explicitly so the dep chain is complete.
+    "backports.tarfile; python_version < '3.12'",
 ]
 
 [project.urls]
