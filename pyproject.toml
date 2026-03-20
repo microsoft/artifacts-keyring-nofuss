@@ -29,6 +29,9 @@ keywords = ["keyring", "azure", "devops", "artifacts", "pip", "authentication"]
 dependencies = [
     "keyring>=23.0",
     "requests>=2.20",
+    # jaraco.context >=6.0 uses backports.tarfile on Python <3.12 but
+    # doesn't declare it — add it explicitly so the dep chain is complete.
+    "backports.tarfile; python_version < '3.12'",
 ]
 
 [project.urls]
@@ -66,9 +69,14 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["E402"]  # module-level import not at top of file (after logging setup)
+"tests/*" = ["S101", "S105", "INP001"]  # assert, test credentials, and namespace package are fine in tests
 
 [tool.mypy]
 strict = true
 files = ["src"]
+
+[[tool.mypy.overrides]]
+module = "tests.*"
+disallow_untyped_decorators = false
 
 [tool.setuptools_scm]

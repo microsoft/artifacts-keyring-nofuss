@@ -12,3 +12,22 @@ SUPPORTED_NETLOCS = frozenset(
         "pkgs.vsts.me",
     }
 )
+
+# Allowed Azure AD authorization hosts (for tenant discovery)
+ALLOWED_AUTH_HOSTS = frozenset(
+    {
+        "login.microsoftonline.com",
+        "login.windows.net",
+        "login.microsoft.com",
+    }
+)
+
+# Allowed Azure DevOps authority hosts (where bearer tokens may be sent)
+ALLOWED_VSTS_AUTHORITY_HOSTS = frozenset(
+    {
+        "app.vssps.visualstudio.com",
+        "app.vssps.dev.azure.com",
+        "app.vssps.codedev.ms",
+        "app.vssps.vsts.me",
+    }
+)

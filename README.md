@@ -91,3 +91,21 @@ ARTIFACTS_KEYRING_NOFUSS_DEBUG=1 pip install --index-url https://pkgs.dev.azure.
 ```
 
 This prints the provider chain, token exchange steps, and any errors to stderr.
+
+## Security model
+
+This package handles authentication tokens. Key security properties:
+
+- **Endpoint validation**: Discovery responses are validated against allowlists.
+  The `authorization_uri` and VSTS authority must point to known hosts over HTTPS,
+  with no non-default ports, userinfo, or deep paths. The authority must be a clean
+  origin (`https://host` or `https://host/`). This prevents bearer token
+  exfiltration via DNS hijacking or rogue proxy responses.
+- **Minimum scope**: Session tokens are requested with `vso.packaging` (read-only,
+  org-scoped) — the narrowest scope that allows package reads.
+- **No secrets at rest**: No tokens are persisted to disk. In-memory caching has a
+  50-minute TTL (tokens typically live 60–75 minutes).
+- **No CWD config**: Provider configuration is read only from `~/.config/` or
+  environment variables, never from the working directory.
+- **Minimal dependencies**: Only `keyring` and `requests` — no large frameworks with
+  broad attack surface.
