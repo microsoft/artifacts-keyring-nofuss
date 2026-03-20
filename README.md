@@ -97,10 +97,9 @@ This prints the provider chain, token exchange steps, and any errors to stderr.
 This package handles authentication tokens. Key security properties:
 
 - **Endpoint validation**: Discovery responses are validated against allowlists.
-  The `authorization_uri` must point to a known Azure AD host
-  (`login.microsoftonline.com`, `login.windows.net`, `login.microsoft.com`) and the
-  VSTS authority must point to a known Azure DevOps host (`app.vssps.visualstudio.com`,
-  `app.vssps.dev.azure.com`, etc.) over HTTPS. This prevents bearer token
+  The `authorization_uri` and VSTS authority must point to known hosts over HTTPS,
+  with no non-default ports, userinfo, or deep paths. The authority must be a clean
+  origin (`https://host` or `https://host/`). This prevents bearer token
   exfiltration via DNS hijacking or rogue proxy responses.
 - **Minimum scope**: Session tokens are requested with `vso.packaging` (read-only,
   org-scoped) — the narrowest scope that allows package reads.

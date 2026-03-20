@@ -4,20 +4,18 @@ from __future__ import annotations
 
 import base64
 import json
-import time
 from unittest import mock
 
 import pytest
 
 from artifacts_keyring_nofuss._backend import (
+    ArtifactsKeyringBackend,
     _account_from_token,
     _discover,
     _is_supported,
     _validate_auth_uri,
     _validate_vsts_authority,
-    ArtifactsKeyringBackend,
 )
-
 
 # ---------------------------------------------------------------------------
 # _is_supported
@@ -75,6 +73,10 @@ class TestValidateAuthUri:
             "https://login.microsoftonline.com.evil.com/tenant-id",
             "https://attacker.example.com",
             "",
+            # Scheme/port/userinfo edge cases
+            "http://login.microsoftonline.com/tenant-id",  # HTTP rejected
+            "https://login.microsoftonline.com:8443/tenant-id",  # non-default port
+            "https://user:pass@login.microsoftonline.com/tenant-id",  # userinfo
         ],
     )
     def test_untrusted_uris(self, uri: str) -> None:
@@ -94,6 +96,7 @@ class TestValidateVstsAuthority:
             "https://app.vssps.dev.azure.com",
             "https://app.vssps.codedev.ms",
             "https://app.vssps.vsts.me",
+            "https://app.vssps.visualstudio.com/",  # trailing slash OK
         ],
     )
     def test_trusted_authorities(self, url: str) -> None:
@@ -107,6 +110,10 @@ class TestValidateVstsAuthority:
             "http://app.vssps.visualstudio.com",  # HTTP not allowed
             "https://attacker.example.com",
             "",
+            # Port/path/userinfo edge cases
+            "https://app.vssps.visualstudio.com:444",  # non-default port
+            "https://app.vssps.visualstudio.com/deep/path",  # non-root path
+            "https://user:pass@app.vssps.visualstudio.com",  # userinfo
         ],
     )
     def test_untrusted_authorities(self, url: str) -> None:
@@ -137,7 +144,9 @@ class TestDiscover:
             www_auth="Bearer authorization_uri=https://login.microsoftonline.com/my-tenant",
             vsts_authority="https://app.vssps.visualstudio.com",
         )
-        result = _discover("https://pkgs.dev.azure.com/org/proj/_packaging/feed/pypi/simple/")
+        result = _discover(
+            "https://pkgs.dev.azure.com/org/proj/_packaging/feed/pypi/simple/"
+        )
         assert result == ("my-tenant", "https://app.vssps.visualstudio.com")
 
     @mock.patch("artifacts_keyring_nofuss._backend.requests.get")
@@ -146,7 +155,9 @@ class TestDiscover:
             www_auth="Bearer authorization_uri=https://evil.com/my-tenant",
             vsts_authority="https://app.vssps.visualstudio.com",
         )
-        result = _discover("https://pkgs.dev.azure.com/org/proj/_packaging/feed/pypi/simple/")
+        result = _discover(
+            "https://pkgs.dev.azure.com/org/proj/_packaging/feed/pypi/simple/"
+        )
         assert result is None
 
     @mock.patch("artifacts_keyring_nofuss._backend.requests.get")
@@ -155,7 +166,9 @@ class TestDiscover:
             www_auth="Bearer authorization_uri=https://login.microsoftonline.com/my-tenant",
             vsts_authority="https://evil.com",
         )
-        result = _discover("https://pkgs.dev.azure.com/org/proj/_packaging/feed/pypi/simple/")
+        result = _discover(
+            "https://pkgs.dev.azure.com/org/proj/_packaging/feed/pypi/simple/"
+        )
         assert result is None
 
     @mock.patch("artifacts_keyring_nofuss._backend.requests.get")
@@ -164,13 +177,17 @@ class TestDiscover:
             www_auth="Bearer authorization_uri=https://login.microsoftonline.com/my-tenant",
             vsts_authority="http://app.vssps.visualstudio.com",
         )
-        result = _discover("https://pkgs.dev.azure.com/org/proj/_packaging/feed/pypi/simple/")
+        result = _discover(
+            "https://pkgs.dev.azure.com/org/proj/_packaging/feed/pypi/simple/"
+        )
         assert result is None
 
     @mock.patch("artifacts_keyring_nofuss._backend.requests.get")
     def test_missing_headers(self, mock_get: mock.MagicMock) -> None:
         mock_get.return_value = self._mock_response()
-        result = _discover("https://pkgs.dev.azure.com/org/proj/_packaging/feed/pypi/simple/")
+        result = _discover(
+            "https://pkgs.dev.azure.com/org/proj/_packaging/feed/pypi/simple/"
+        )
         assert result is None
 
 
@@ -180,9 +197,11 @@ class TestDiscover:
 
 
 class TestAccountFromToken:
-    def _make_jwt(self, claims: dict) -> str:
+    def _make_jwt(self, claims: dict[str, str]) -> str:
         header = base64.urlsafe_b64encode(b'{"alg":"RS256"}').rstrip(b"=").decode()
-        payload = base64.urlsafe_b64encode(json.dumps(claims).encode()).rstrip(b"=").decode()
+        payload = (
+            base64.urlsafe_b64encode(json.dumps(claims).encode()).rstrip(b"=").decode()
+        )
         return f"{header}.{payload}.signature"
 
     def test_extracts_upn(self) -> None:
@@ -223,23 +242,24 @@ class TestCacheTTL:
         backend = ArtifactsKeyringBackend()
         url = "https://pkgs.dev.azure.com/org/proj/_packaging/feed/pypi/simple/"
 
-        # First call populates cache
-        cred1 = backend.get_credential(url, None)
-        assert cred1 is not None
-        assert mock_exchange.call_count == 1
+        now = 1000.0
+        with mock.patch(
+            "artifacts_keyring_nofuss._backend.time.monotonic", side_effect=lambda: now
+        ):
+            # First call populates cache
+            cred1 = backend.get_credential(url, None)
+            assert cred1 is not None
+            assert mock_exchange.call_count == 1
 
-        # Second call uses cache (no new exchange)
-        cred2 = backend.get_credential(url, None)
-        assert cred2 is cred1
-        assert mock_exchange.call_count == 1
+            # Second call uses cache (no new exchange)
+            cred2 = backend.get_credential(url, None)
+            assert cred2 is cred1
+            assert mock_exchange.call_count == 1
 
-        # Simulate expired cache by backdating the timestamp
-        entry = backend._cache[url]
-        backend._cache[url] = (entry[0], time.monotonic() - 3600)
-
-        # Third call should re-authenticate
-        mock_exchange.return_value = "new-session-token"
-        cred3 = backend.get_credential(url, None)
-        assert cred3 is not None
-        assert cred3.password == "new-session-token"
-        assert mock_exchange.call_count == 2
+            # Advance time past TTL (50 min = 3000s)
+            now = 4100.0
+            mock_exchange.return_value = "new-session-token"
+            cred3 = backend.get_credential(url, None)
+            assert cred3 is not None
+            assert cred3.password == "new-session-token"
+            assert mock_exchange.call_count == 2
