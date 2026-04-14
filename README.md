@@ -76,7 +76,7 @@ The keyring backend is automatically discovered by pip. No extra flags needed.
 ## Usage with uv
 
 uv uses keyring in subprocess mode and **requires a trigger** to attempt keyring
-lookup.  Pick one of these approaches:
+lookup. Pick one of these approaches:
 
 ### Option A: Add a username to the URL (simplest)
 
@@ -94,7 +94,7 @@ credentials regardless — but `VssSessionToken` is conventional for Azure DevOp
 
 ```toml
 [[tool.uv.index]]
-url = "https://pkgs.dev.azure.com/{org}/_packaging/{feed}/pypi/simple"
+url = "https://pkgs.dev.azure.com/{org}/_packaging/{feed}/pypi/simple/"
 authenticate = "always"
 ```
 
