@@ -73,6 +73,54 @@ pip install --index-url https://pkgs.dev.azure.com/{org}/_packaging/{feed}/pypi/
 
 The keyring backend is automatically discovered by pip. No extra flags needed.
 
+## Usage with uv
+
+uv uses keyring in subprocess mode and **requires a trigger** to attempt keyring
+lookup. Pick one of these approaches:
+
+### Option A: Add a username to the URL (simplest)
+
+```bash
+uv pip install \
+  --keyring-provider subprocess \
+  --index-url "https://VssSessionToken@pkgs.dev.azure.com/{org}/_packaging/{feed}/pypi/simple/" \
+  my-package
+```
+
+The actual username doesn't matter — the keyring backend returns the correct
+credentials regardless — but `VssSessionToken` is conventional for Azure DevOps.
+
+### Option B: `authenticate = "always"` in `pyproject.toml`
+
+```toml
+[[tool.uv.index]]
+url = "https://pkgs.dev.azure.com/{org}/_packaging/{feed}/pypi/simple/"
+authenticate = "always"
+```
+
+Then:
+
+```bash
+uv pip install --keyring-provider subprocess my-package
+```
+
+### Persistent keyring-provider setting
+
+To avoid passing `--keyring-provider subprocess` every time, add it to your
+project or user config:
+
+```toml
+# pyproject.toml or uv.toml
+[tool.uv]
+keyring-provider = "subprocess"
+```
+
+Or set the environment variable:
+
+```bash
+export UV_KEYRING_PROVIDER=subprocess
+```
+
 ## Supported feed URLs
 
 Any URL whose host matches one of:
