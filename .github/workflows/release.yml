@@ -6,7 +6,7 @@ on:
       - "v*"
 
 permissions:
-  contents: write
+  contents: read
   id-token: write  # for trusted publishing
   attestations: write  # for build provenance attestations
 
@@ -35,10 +35,15 @@ jobs:
           name: dist
           path: dist/
 
+  # Publish to PyPI and attach assets to the GitHub Release.
+  # The release must already exist (created via `gh release create vX.Y.Z`).
   publish:
     needs: build
     runs-on: ubuntu-latest
     environment: pypi
+    permissions:
+      contents: write  # for uploading release assets
+      id-token: write  # for trusted publishing
     steps:
       - uses: actions/download-artifact@v4
         with:
