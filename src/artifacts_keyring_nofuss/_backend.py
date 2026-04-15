@@ -45,7 +45,7 @@ def _account_from_token(bearer: str) -> str | None:
 
 def _ensure_scheme(url: str) -> str:
     """Prepend ``https://`` when *url* has no scheme (e.g. bare hostnames from uv)."""
-    if url.startswith(("http://", "https://")):
+    if url.lower().startswith(("http://", "https://")):
         return url
     return f"https://{url}"
 
