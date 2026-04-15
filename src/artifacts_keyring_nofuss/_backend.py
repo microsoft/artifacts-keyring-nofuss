@@ -43,13 +43,61 @@ def _account_from_token(bearer: str) -> str | None:
         return None
 
 
+def _ensure_scheme(url: str) -> str:
+    """Prepend ``https://`` when *url* has no scheme (e.g. bare hostnames from uv)."""
+    if url.lower().startswith(("http://", "https://")):
+        return url
+    return f"https://{url}"
+
+
+def _strip_userinfo(url: str) -> str:
+    """Return *url* with any ``user:pass@`` or ``user@`` removed."""
+    parsed = urllib.parse.urlparse(_ensure_scheme(url))
+    if parsed.username or parsed.password:
+        # Rebuild without userinfo
+        netloc = parsed.hostname or ""
+        if parsed.port is not None:
+            netloc = f"{netloc}:{parsed.port}"
+        return urllib.parse.urlunparse(parsed._replace(netloc=netloc))
+    return _ensure_scheme(url)
+
+
+def _parse_hostname(service: str) -> str:
+    """Extract the lowercase hostname from *service*, normalising the URL first."""
+    try:
+        return (urllib.parse.urlparse(_ensure_scheme(service)).hostname or "").lower()
+    except ValueError:
+        return ""
+
+
+def _hostname_matches(hostname: str) -> bool:
+    """Return True if *hostname* matches a known Azure DevOps Artifacts netloc.
+
+    Accepts both exact matches (``pkgs.dev.azure.com``) and subdomain-prefixed
+    matches (``myorg.pkgs.visualstudio.com``) while rejecting spoofed domains
+    like ``evil-pkgs.dev.azure.com``.
+    """
+    return _host_in_allowed(hostname, C.SUPPORTED_NETLOCS)
+
+
 def _is_supported(service: str) -> bool:
     """Return True if *service* looks like an Azure DevOps Artifacts feed URL."""
-    try:
-        netloc = urllib.parse.urlparse(service).hostname or ""
-    except ValueError:
+    hostname = _parse_hostname(service)
+    if not hostname:
         return False
-    return netloc in C.SUPPORTED_NETLOCS
+    return _hostname_matches(hostname)
+
+
+def _host_in_allowed(hostname: str, allowed_hosts: frozenset[str]) -> bool:
+    """Return True if *hostname* matches any entry in *allowed_hosts*.
+
+    Supports both exact matches and subdomain-prefixed matches
+    (e.g. ``myorg.vssps.visualstudio.com`` matches ``vssps.visualstudio.com``).
+    """
+    return any(
+        hostname == allowed or hostname.endswith(f".{allowed}")
+        for allowed in allowed_hosts
+    )
 
 
 def _is_safe_origin(
@@ -61,7 +109,7 @@ def _is_safe_origin(
     """
     if parsed.scheme != "https":
         return False
-    if (parsed.hostname or "") not in allowed_hosts:
+    if not _host_in_allowed((parsed.hostname or "").lower(), allowed_hosts):
         return False
     if parsed.port is not None and parsed.port != 443:
         return False
@@ -100,10 +148,12 @@ def _discover(service: str) -> tuple[str, str] | None:
 
     Returns ``(tenant_id, vsts_authority)`` or ``None``.
     """
+    # Strip userinfo (e.g. __token__@) so the request is truly unauthenticated
+    clean_url = _strip_userinfo(service)
     try:
-        resp = requests.get(service, allow_redirects=False, timeout=10)
+        resp = requests.get(clean_url, allow_redirects=False, timeout=10)
     except requests.RequestException:
-        log.debug("discovery request failed for %s", service, exc_info=True)
+        log.debug("discovery request failed for %s", clean_url, exc_info=True)
         return None
 
     www_auth = resp.headers.get("WWW-Authenticate", "")
@@ -214,7 +264,7 @@ class ArtifactsKeyringBackend(keyring.backend.KeyringBackend):
 
         account = _account_from_token(bearer)
 
-        # Exchange for session token
+        # Exchange bearer for a narrower VssSessionToken
         session_tok = _session_token.exchange(bearer, vsts_authority)
         if session_tok is None:
             if account:
