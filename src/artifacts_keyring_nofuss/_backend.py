@@ -77,10 +77,7 @@ def _hostname_matches(hostname: str) -> bool:
     matches (``myorg.pkgs.visualstudio.com``) while rejecting spoofed domains
     like ``evil-pkgs.dev.azure.com``.
     """
-    return any(
-        hostname == allowed or hostname.endswith(f".{allowed}")
-        for allowed in C.SUPPORTED_NETLOCS
-    )
+    return _host_in_allowed(hostname, C.SUPPORTED_NETLOCS)
 
 
 def _is_supported(service: str) -> bool:
@@ -156,7 +153,7 @@ def _discover(service: str) -> tuple[str, str] | None:
     try:
         resp = requests.get(clean_url, allow_redirects=False, timeout=10)
     except requests.RequestException:
-        log.debug("discovery request failed for %s", service, exc_info=True)
+        log.debug("discovery request failed for %s", clean_url, exc_info=True)
         return None
 
     www_auth = resp.headers.get("WWW-Authenticate", "")
