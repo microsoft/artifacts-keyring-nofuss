@@ -216,7 +216,7 @@ class ArtifactsKeyringBackend(keyring.backend.KeyringBackend):
         super().__init__()  # type: ignore[no-untyped-call]
         self._cache: dict[str, tuple[keyring.credentials.SimpleCredential, float]] = {}
 
-    def get_credential(  # noqa: PLR0911, PLR0912, C901
+    def get_credential(  # noqa: PLR0911, C901
         self,
         service: str,
         username: str | None,  # noqa: ARG002

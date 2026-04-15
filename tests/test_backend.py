@@ -65,8 +65,7 @@ class TestStripUserinfo:
             "__token__@myorg.pkgs.visualstudio.com/_packaging/feed/pypi/simple/"
         )
         assert (
-            result
-            == "https://myorg.pkgs.visualstudio.com/_packaging/feed/pypi/simple/"
+            result == "https://myorg.pkgs.visualstudio.com/_packaging/feed/pypi/simple/"
         )
 
 
@@ -443,7 +442,9 @@ class TestSessionTokenDefault:
         mock_exchange.return_value = "session-token-123"
 
         backend = ArtifactsKeyringBackend()
-        url = "https://__token__@myorg.pkgs.visualstudio.com/_packaging/feed/pypi/simple/"
+        url = (
+            "https://__token__@myorg.pkgs.visualstudio.com/_packaging/feed/pypi/simple/"
+        )
         cred = backend.get_credential(url, None)
 
         assert cred is not None
