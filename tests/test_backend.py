@@ -361,11 +361,13 @@ class TestCacheTTL:
             cred1 = backend.get_credential(url, None)
             assert cred1 is not None
             assert mock_chain.call_count == 1
+            assert mock_exchange.call_count == 1
 
-            # Second call uses cache (no new chain run)
+            # Second call uses cache (no new chain run and no new exchange)
             cred2 = backend.get_credential(url, None)
             assert cred2 is cred1
             assert mock_chain.call_count == 1
+            assert mock_exchange.call_count == 1
 
             # Advance time past TTL (50 min = 3000s)
             now = 4100.0
@@ -375,6 +377,7 @@ class TestCacheTTL:
             assert cred3 is not None
             assert cred3.password == "new-session-token"
             assert mock_chain.call_count == 2
+            assert mock_exchange.call_count == 2
 
 
 # ---------------------------------------------------------------------------
