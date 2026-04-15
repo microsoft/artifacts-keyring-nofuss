@@ -64,8 +64,10 @@ class TestStripUserinfo:
         result = _strip_userinfo(
             "__token__@myorg.pkgs.visualstudio.com/_packaging/feed/pypi/simple/"
         )
-        assert "myorg.pkgs.visualstudio.com" in result
-        assert "__token__" not in result
+        assert (
+            result
+            == "https://myorg.pkgs.visualstudio.com/_packaging/feed/pypi/simple/"
+        )
 
 
 # ---------------------------------------------------------------------------
