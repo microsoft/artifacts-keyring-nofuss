@@ -3,8 +3,7 @@
 Minimal, pure-Python keyring backend for Azure DevOps Artifacts feeds.
 
 Replaces the official `artifacts-keyring` (which wraps a ~100 MB .NET binary) with a
-no-fuss implementation that covers the most common Linux auth scenarios using raw
-HTTP — no .NET required.
+no-fuss, pure-Python implementation — no .NET required.
 
 ## Install
 

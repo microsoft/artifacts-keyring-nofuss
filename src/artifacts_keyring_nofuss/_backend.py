@@ -32,15 +32,37 @@ PROVIDERS: dict[str, type[_provider.TokenProvider]] = {
 DEFAULT_CHAIN = ["azure_cli", "azure_identity"]
 
 
-def _account_from_token(bearer: str) -> str | None:
-    """Extract the user principal name from a JWT bearer token (no validation)."""
+def _decode_jwt_claims(bearer: str) -> dict[str, str]:
+    """Decode the payload of a JWT without validation. Returns {} on failure."""
     try:
         payload = bearer.split(".")[1]
         payload += "=" * (-len(payload) % 4)
-        claims: dict[str, str] = json.loads(base64.urlsafe_b64decode(payload))
-        return claims.get("upn") or claims.get("unique_name") or claims.get("oid")
+        return json.loads(base64.urlsafe_b64decode(payload))  # type: ignore[no-any-return]
     except Exception:
-        return None
+        return {}
+
+
+def _account_from_token(bearer: str) -> str | None:
+    """Extract the user principal name from a JWT bearer token (no validation)."""
+    claims = _decode_jwt_claims(bearer)
+    return claims.get("upn") or claims.get("unique_name") or claims.get("oid")
+
+
+def _is_service_principal_token(bearer: str) -> bool:
+    """Detect whether a bearer token belongs to a service principal.
+
+    Uses the ``idtyp`` claim (``"app"`` for SP/MI/WIF, ``"user"`` for
+    interactive users).  Falls back to checking for the absence of ``upn``
+    when ``idtyp`` is not present.
+    """
+    claims = _decode_jwt_claims(bearer)
+    if not claims:
+        return False  # can't tell — assume user, try exchange
+    idtyp = claims.get("idtyp", "")
+    if idtyp:
+        return idtyp == "app"
+    # Older v1 tokens may lack idtyp; user tokens have upn, SP tokens don't
+    return "upn" not in claims and "unique_name" not in claims
 
 
 def _ensure_scheme(url: str) -> str:
@@ -262,10 +284,10 @@ class ArtifactsKeyringBackend(keyring.backend.KeyringBackend):
             )
             return None
 
-        bearer = result.access_token
+        bearer = result
         account = _account_from_token(bearer)
 
-        if result.is_service_principal:
+        if _is_service_principal_token(bearer):
             # MI / SP / WIF tokens cannot be exchanged for a VssSessionToken.
             # Return the Entra bearer token directly as Basic auth password.
             if account:

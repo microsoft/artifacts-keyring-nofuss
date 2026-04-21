@@ -14,7 +14,6 @@ import os
 from azure.identity import DefaultAzureCredential, ManagedIdentityCredential
 
 from . import _constants as C
-from ._provider import TokenResult
 
 log = logging.getLogger(__name__)
 
@@ -22,7 +21,7 @@ log = logging.getLogger(__name__)
 class AzureIdentityProvider:
     name = "azure_identity"
 
-    def get_token(self, tenant_id: str) -> TokenResult | None:  # noqa: ARG002
+    def get_token(self, tenant_id: str) -> str | None:  # noqa: ARG002
         client_id = os.environ.get("AZURE_CLIENT_ID")
 
         # If AZURE_CLIENT_ID is set but no AZURE_TENANT_ID, this is likely a
@@ -56,4 +55,5 @@ class AzureIdentityProvider:
 
         if not token.token:
             return None
-        return TokenResult(token.token, is_service_principal=True)
+        result: str = token.token
+        return result
