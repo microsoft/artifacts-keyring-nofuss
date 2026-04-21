@@ -7,6 +7,7 @@ import logging
 import subprocess
 
 from . import _constants as C
+from ._provider import TokenResult
 
 log = logging.getLogger(__name__)
 
@@ -31,7 +32,7 @@ def _current_account() -> str | None:
 class AzureCliProvider:
     name = "azure_cli"
 
-    def get_token(self, tenant_id: str) -> str | None:
+    def get_token(self, tenant_id: str) -> TokenResult | None:
         try:
             result = subprocess.run(
                 [
@@ -80,5 +81,5 @@ class AzureCliProvider:
             return None
 
         if isinstance(token, str) and token:
-            return token
+            return TokenResult(token, is_service_principal=False)
         return None

@@ -8,6 +8,7 @@ import os
 import requests
 
 from . import _constants as C
+from ._provider import TokenResult
 
 log = logging.getLogger(__name__)
 
@@ -18,7 +19,7 @@ IMDS_TIMEOUT = 2  # fail fast on non-Azure machines
 class ManagedIdentityProvider:
     name = "managed_identity"
 
-    def get_token(self, tenant_id: str) -> str | None:  # noqa: ARG002
+    def get_token(self, tenant_id: str) -> TokenResult | None:  # noqa: ARG002
         params: dict[str, str] = {
             "resource": C.RESOURCE_ID,
             "api-version": "2018-02-01",
@@ -41,4 +42,7 @@ class ManagedIdentityProvider:
             log.debug("IMDS request failed", exc_info=True)
             return None
 
-        return resp.json().get("access_token") or None
+        token = resp.json().get("access_token")
+        if not token:
+            return None
+        return TokenResult(token, is_service_principal=True)

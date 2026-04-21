@@ -17,6 +17,7 @@ import requests
 from . import _constants as C
 from . import _provider, _session_token
 from ._azure_cli import AzureCliProvider
+from ._azure_identity import AzureIdentityProvider
 from ._managed_identity import ManagedIdentityProvider
 
 log = logging.getLogger(__name__)
@@ -26,10 +27,11 @@ _CACHE_TTL_SECONDS = 50 * 60
 
 PROVIDERS: dict[str, type[_provider.TokenProvider]] = {
     "azure_cli": AzureCliProvider,
+    "azure_identity": AzureIdentityProvider,
     "managed_identity": ManagedIdentityProvider,
 }
 
-DEFAULT_CHAIN = ["azure_cli", "managed_identity"]
+DEFAULT_CHAIN = ["azure_cli", "azure_identity", "managed_identity"]
 
 
 def _account_from_token(bearer: str) -> str | None:
@@ -216,7 +218,7 @@ class ArtifactsKeyringBackend(keyring.backend.KeyringBackend):
         super().__init__()  # type: ignore[no-untyped-call]
         self._cache: dict[str, tuple[keyring.credentials.SimpleCredential, float]] = {}
 
-    def get_credential(  # noqa: PLR0911, C901
+    def get_credential(  # noqa: PLR0911, PLR0912, C901
         self,
         service: str,
         username: str | None,  # noqa: ARG002
@@ -252,8 +254,8 @@ class ArtifactsKeyringBackend(keyring.backend.KeyringBackend):
             chain = [PROVIDERS[name]() for name in DEFAULT_CHAIN]
 
         # Get bearer token
-        bearer = _provider.run_chain(chain, tenant_id)
-        if bearer is None:
+        result = _provider.run_chain(chain, tenant_id)
+        if result is None:
             log.warning(
                 "all auth providers failed for %s — are you logged in? "
                 "Try: az login --tenant %s",
@@ -262,24 +264,37 @@ class ArtifactsKeyringBackend(keyring.backend.KeyringBackend):
             )
             return None
 
+        bearer = result.access_token
         account = _account_from_token(bearer)
 
-        # Exchange bearer for a narrower VssSessionToken
-        session_tok = _session_token.exchange(bearer, vsts_authority)
-        if session_tok is None:
+        if result.is_service_principal:
+            # MI / SP / WIF tokens cannot be exchanged for a VssSessionToken.
+            # Return the Entra bearer token directly as Basic auth password.
             if account:
-                log.warning(
-                    "session token exchange failed for %s (authenticated as %s)",
+                log.debug(
+                    "authenticated to %s as %s (service principal)",
                     service,
                     account,
                 )
-            else:
-                log.warning("session token exchange failed for %s", service)
-            return None
+            cred = keyring.credentials.SimpleCredential("bearer", bearer)
+        else:
+            # User tokens (e.g. Azure CLI) are exchanged for a narrower
+            # VssSessionToken scoped to vso.packaging.
+            session_tok = _session_token.exchange(bearer, vsts_authority)
+            if session_tok is None:
+                if account:
+                    log.warning(
+                        "session token exchange failed for %s (authenticated as %s)",
+                        service,
+                        account,
+                    )
+                else:
+                    log.warning("session token exchange failed for %s", service)
+                return None
 
-        if account:
-            log.debug("authenticated to %s as %s", service, account)
-        cred = keyring.credentials.SimpleCredential("VssSessionToken", session_tok)
+            if account:
+                log.debug("authenticated to %s as %s", service, account)
+            cred = keyring.credentials.SimpleCredential("VssSessionToken", session_tok)
         self._cache[service] = (cred, time.monotonic())
         return cred
 

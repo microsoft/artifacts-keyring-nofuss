@@ -19,6 +19,7 @@ from artifacts_keyring_nofuss._backend import (
     _validate_auth_uri,
     _validate_vsts_authority,
 )
+from artifacts_keyring_nofuss._provider import TokenResult
 
 # ---------------------------------------------------------------------------
 # _ensure_scheme
@@ -347,7 +348,7 @@ class TestCacheTTL:
         mock_exchange: mock.MagicMock,
     ) -> None:
         mock_discover.return_value = ("tenant", "https://app.vssps.visualstudio.com")
-        mock_chain.return_value = "bearer-token"
+        mock_chain.return_value = TokenResult("bearer-token")
         mock_exchange.return_value = "session-token"
 
         backend = ArtifactsKeyringBackend()
@@ -371,7 +372,7 @@ class TestCacheTTL:
 
             # Advance time past TTL (50 min = 3000s)
             now = 4100.0
-            mock_chain.return_value = "new-bearer-token"
+            mock_chain.return_value = TokenResult("new-bearer-token")
             mock_exchange.return_value = "new-session-token"
             cred3 = backend.get_credential(url, None)
             assert cred3 is not None
@@ -398,7 +399,7 @@ class TestSessionTokenDefault:
         mock_exchange: mock.MagicMock,
     ) -> None:
         mock_discover.return_value = ("tenant", "https://app.vssps.visualstudio.com")
-        mock_chain.return_value = "my-bearer-token"
+        mock_chain.return_value = TokenResult("my-bearer-token")
         mock_exchange.return_value = "my-session-token"
 
         backend = ArtifactsKeyringBackend()
@@ -422,7 +423,7 @@ class TestSessionTokenDefault:
         mock_exchange: mock.MagicMock,
     ) -> None:
         mock_discover.return_value = ("tenant", "https://app.vssps.visualstudio.com")
-        mock_chain.return_value = "my-bearer-token"
+        mock_chain.return_value = TokenResult("my-bearer-token")
         mock_exchange.return_value = "my-session-token"
 
         backend = ArtifactsKeyringBackend()
@@ -441,7 +442,7 @@ class TestSessionTokenDefault:
         mock_exchange: mock.MagicMock,
     ) -> None:
         mock_discover.return_value = ("tenant", "https://app.vssps.visualstudio.com")
-        mock_chain.return_value = "bearer-token"
+        mock_chain.return_value = TokenResult("bearer-token")
         mock_exchange.return_value = "session-token-123"
 
         backend = ArtifactsKeyringBackend()
@@ -463,7 +464,7 @@ class TestSessionTokenDefault:
         mock_exchange: mock.MagicMock,
     ) -> None:
         mock_discover.return_value = ("tenant", "https://app.vssps.visualstudio.com")
-        mock_chain.return_value = "bearer-token"
+        mock_chain.return_value = TokenResult("bearer-token")
         mock_exchange.return_value = None
 
         backend = ArtifactsKeyringBackend()
@@ -506,3 +507,104 @@ class TestDiscoverWithUserinfo:
         called_url = mock_get.call_args[0][0]
         assert "__token__" not in called_url
         assert "pkgs.dev.azure.com" in called_url
+
+
+# ---------------------------------------------------------------------------
+# Service principal tokens (MI/SP/WIF) — bearer returned directly
+# ---------------------------------------------------------------------------
+
+
+class TestServicePrincipalTokens:
+    """SP tokens skip session exchange and return the Entra bearer directly."""
+
+    @mock.patch("artifacts_keyring_nofuss._backend._session_token.exchange")
+    @mock.patch("artifacts_keyring_nofuss._backend._discover")
+    @mock.patch("artifacts_keyring_nofuss._backend._provider.run_chain")
+    def test_sp_token_skips_session_exchange(
+        self,
+        mock_chain: mock.MagicMock,
+        mock_discover: mock.MagicMock,
+        mock_exchange: mock.MagicMock,
+    ) -> None:
+        mock_discover.return_value = ("tenant", "https://app.vssps.visualstudio.com")
+        mock_chain.return_value = TokenResult(
+            "sp-bearer-token", is_service_principal=True
+        )
+
+        backend = ArtifactsKeyringBackend()
+        url = "https://pkgs.dev.azure.com/org/proj/_packaging/feed/pypi/simple/"
+        cred = backend.get_credential(url, None)
+
+        assert cred is not None
+        assert cred.username == "bearer"
+        assert cred.password == "sp-bearer-token"
+        # Session exchange should NOT be called for SP tokens
+        mock_exchange.assert_not_called()
+
+    @mock.patch("artifacts_keyring_nofuss._backend._session_token.exchange")
+    @mock.patch("artifacts_keyring_nofuss._backend._discover")
+    @mock.patch("artifacts_keyring_nofuss._backend._provider.run_chain")
+    def test_user_token_does_session_exchange(
+        self,
+        mock_chain: mock.MagicMock,
+        mock_discover: mock.MagicMock,
+        mock_exchange: mock.MagicMock,
+    ) -> None:
+        mock_discover.return_value = ("tenant", "https://app.vssps.visualstudio.com")
+        mock_chain.return_value = TokenResult(
+            "user-bearer-token", is_service_principal=False
+        )
+        mock_exchange.return_value = "session-token"
+
+        backend = ArtifactsKeyringBackend()
+        url = "https://pkgs.dev.azure.com/org/proj/_packaging/feed/pypi/simple/"
+        cred = backend.get_credential(url, None)
+
+        assert cred is not None
+        assert cred.username == "VssSessionToken"
+        assert cred.password == "session-token"
+        mock_exchange.assert_called_once_with(
+            "user-bearer-token", "https://app.vssps.visualstudio.com"
+        )
+
+    @mock.patch("artifacts_keyring_nofuss._backend._session_token.exchange")
+    @mock.patch("artifacts_keyring_nofuss._backend._discover")
+    @mock.patch("artifacts_keyring_nofuss._backend._provider.run_chain")
+    def test_sp_token_get_password(
+        self,
+        mock_chain: mock.MagicMock,
+        mock_discover: mock.MagicMock,
+        mock_exchange: mock.MagicMock,
+    ) -> None:
+        mock_discover.return_value = ("tenant", "https://app.vssps.visualstudio.com")
+        mock_chain.return_value = TokenResult(
+            "sp-bearer-token", is_service_principal=True
+        )
+
+        backend = ArtifactsKeyringBackend()
+        url = "https://pkgs.dev.azure.com/org/proj/_packaging/feed/pypi/simple/"
+        password = backend.get_password(url, None)
+
+        assert password == "sp-bearer-token"
+        mock_exchange.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# TokenResult
+# ---------------------------------------------------------------------------
+
+
+class TestTokenResult:
+    def test_defaults_to_non_service_principal(self) -> None:
+        result = TokenResult("token")
+        assert result.access_token == "token"
+        assert result.is_service_principal is False
+
+    def test_service_principal_flag(self) -> None:
+        result = TokenResult("token", is_service_principal=True)
+        assert result.is_service_principal is True
+
+    def test_frozen(self) -> None:
+        result = TokenResult("token")
+        with pytest.raises(AttributeError):
+            result.access_token = "other"  # type: ignore[misc]

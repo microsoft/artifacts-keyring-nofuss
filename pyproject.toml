@@ -43,6 +43,7 @@ Issues = "https://github.com/msr-central/artifacts-keyring-nofuss/issues"
 artifacts-keyring-nofuss = "artifacts_keyring_nofuss:ArtifactsKeyringBackend"
 
 [project.optional-dependencies]
+azure-identity = ["azure-identity>=1.14"]
 dev = [
     "mypy>=1.10",
     "pre-commit>=4.0",
@@ -78,5 +79,9 @@ files = ["src"]
 [[tool.mypy.overrides]]
 module = "tests.*"
 disallow_untyped_decorators = false
+
+[[tool.mypy.overrides]]
+module = "azure.identity"
+ignore_missing_imports = true
 
 [tool.setuptools_scm]
