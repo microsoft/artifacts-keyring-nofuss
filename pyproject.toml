@@ -80,8 +80,4 @@ files = ["src"]
 module = "tests.*"
 disallow_untyped_decorators = false
 
-[[tool.mypy.overrides]]
-module = "azure.identity"
-ignore_missing_imports = true
-
 [tool.setuptools_scm]
