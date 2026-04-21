@@ -48,21 +48,35 @@ def _account_from_token(bearer: str) -> str | None:
     return claims.get("upn") or claims.get("unique_name") or claims.get("oid")
 
 
-def _is_service_principal_token(bearer: str) -> bool:
+def _is_service_principal_token(bearer: str) -> bool:  # noqa: PLR0911
     """Detect whether a bearer token belongs to a service principal.
 
-    Uses the ``idtyp`` claim (``"app"`` for SP/MI/WIF, ``"user"`` for
-    interactive users).  Falls back to checking for the absence of ``upn``
-    when ``idtyp`` is not present.
+    Inspects JWT claims in priority order to decide whether the token can be
+    exchanged for a VssSessionToken (user) or must be returned directly (SP).
     """
     claims = _decode_jwt_claims(bearer)
     if not claims:
-        return False  # can't tell — assume user, try exchange
-    idtyp = claims.get("idtyp", "")
-    if idtyp:
-        return idtyp == "app"
-    # Older v1 tokens may lack idtyp; user tokens have upn, SP tokens don't
-    return "upn" not in claims and "unique_name" not in claims
+        return False  # fail safe: treat as user
+
+    # 1. Authoritative when present
+    idtyp = claims.get("idtyp")
+    if idtyp == "app":
+        return True
+    if idtyp == "user":
+        return False
+
+    # 2. Strong behavioral signal
+    if "scp" in claims:
+        return False  # delegated user token
+    if "roles" in claims:
+        return True  # app-only token
+
+    # 3. Weak fallback (best-effort only)
+    if "preferred_username" in claims or "upn" in claims:
+        return False
+
+    # Unknown → assume user (safe default: exchange will fail gracefully)
+    return False
 
 
 def _ensure_scheme(url: str) -> str:

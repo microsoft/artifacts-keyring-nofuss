@@ -604,17 +604,25 @@ class TestIsServicePrincipalToken:
         token = _make_jwt({"idtyp": "user", "upn": "user@example.com"})
         assert _is_service_principal_token(token) is False
 
+    def test_scp_claim_means_delegated(self) -> None:
+        token = _make_jwt({"oid": "u-123", "scp": "user_impersonation"})
+        assert _is_service_principal_token(token) is False
+
+    def test_roles_claim_means_app_only(self) -> None:
+        token = _make_jwt({"oid": "sp-123", "roles": "Packaging.Read"})
+        assert _is_service_principal_token(token) is True
+
     def test_no_idtyp_with_upn_is_user(self) -> None:
         token = _make_jwt({"upn": "user@example.com", "oid": "u-123"})
         assert _is_service_principal_token(token) is False
 
-    def test_no_idtyp_no_upn_is_sp(self) -> None:
-        token = _make_jwt({"oid": "sp-123", "appid": "client-id"})
-        assert _is_service_principal_token(token) is True
+    def test_no_idtyp_with_preferred_username_is_user(self) -> None:
+        token = _make_jwt({"preferred_username": "user@example.com", "oid": "u-123"})
+        assert _is_service_principal_token(token) is False
+
+    def test_unknown_claims_default_to_user(self) -> None:
+        token = _make_jwt({"oid": "mystery-123"})
+        assert _is_service_principal_token(token) is False
 
     def test_garbage_token_defaults_to_user(self) -> None:
         assert _is_service_principal_token("not-a-jwt") is False
-
-    def test_v1_token_with_unique_name_is_user(self) -> None:
-        token = _make_jwt({"unique_name": "user@example.com", "oid": "u-123"})
-        assert _is_service_principal_token(token) is False
