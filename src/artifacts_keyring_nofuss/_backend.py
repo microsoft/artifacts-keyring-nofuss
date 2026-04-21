@@ -18,7 +18,6 @@ from . import _constants as C
 from . import _provider, _session_token
 from ._azure_cli import AzureCliProvider
 from ._azure_identity import AzureIdentityProvider
-from ._managed_identity import ManagedIdentityProvider
 
 log = logging.getLogger(__name__)
 
@@ -28,10 +27,9 @@ _CACHE_TTL_SECONDS = 50 * 60
 PROVIDERS: dict[str, type[_provider.TokenProvider]] = {
     "azure_cli": AzureCliProvider,
     "azure_identity": AzureIdentityProvider,
-    "managed_identity": ManagedIdentityProvider,
 }
 
-DEFAULT_CHAIN = ["azure_cli", "azure_identity", "managed_identity"]
+DEFAULT_CHAIN = ["azure_cli", "azure_identity"]
 
 
 def _account_from_token(bearer: str) -> str | None:

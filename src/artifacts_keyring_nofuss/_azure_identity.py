@@ -1,14 +1,9 @@
 """Auth flow: azure-identity library (MI, SP, WIF, and more).
 
-This provider is only active when the ``azure-identity`` package is
-installed.  It uses ``DefaultAzureCredential`` which automatically
-handles managed identities (system + user-assigned), service principals
-with secrets or certificates, workload identity federation, and several
-other credential types.
-
-Install the optional extra to enable::
-
-    pip install artifacts-keyring-nofuss[azure-identity]
+Uses ``DefaultAzureCredential`` which automatically handles managed
+identities (system + user-assigned), service principals with secrets or
+certificates, workload identity federation, and several other credential
+types.
 """
 
 from __future__ import annotations
@@ -16,33 +11,25 @@ from __future__ import annotations
 import logging
 import os
 
+from azure.identity import DefaultAzureCredential, ManagedIdentityCredential
+
 from . import _constants as C
 from ._provider import TokenResult
 
 log = logging.getLogger(__name__)
-
-try:
-    from azure.identity import DefaultAzureCredential, ManagedIdentityCredential
-
-    _HAS_AZURE_IDENTITY = True
-except ImportError:  # pragma: no cover
-    _HAS_AZURE_IDENTITY = False
 
 
 class AzureIdentityProvider:
     name = "azure_identity"
 
     def get_token(self, tenant_id: str) -> TokenResult | None:  # noqa: ARG002
-        if not _HAS_AZURE_IDENTITY:
-            log.debug("azure-identity not installed, skipping")
-            return None
-
         client_id = os.environ.get("AZURE_CLIENT_ID")
 
         # If AZURE_CLIENT_ID is set but no AZURE_TENANT_ID, this is likely a
         # user-assigned managed identity scenario — use ManagedIdentityCredential
         # directly so DefaultAzureCredential doesn't mis-interpret it as an
         # EnvironmentCredential (which requires AZURE_TENANT_ID + a secret).
+        credential: ManagedIdentityCredential | DefaultAzureCredential
         tenant_id_env = os.environ.get("AZURE_TENANT_ID")
         if client_id and not tenant_id_env:
             log.debug(

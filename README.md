@@ -12,13 +12,6 @@ HTTP — no .NET required.
 pip install artifacts-keyring-nofuss
 ```
 
-For managed identity, service principal, or workload identity federation support on
-Azure resources, install the optional `azure-identity` extra:
-
-```bash
-pip install artifacts-keyring-nofuss[azure-identity]
-```
-
 Or for development:
 
 ```bash
@@ -44,8 +37,7 @@ Artifacts feed, this backend:
 | # | Flow | How it works |
 |---|------|-------------|
 | 1 | **Azure CLI** | Runs `az account get-access-token`. Most common for local dev. |
-| 2 | **Azure Identity** | Uses `DefaultAzureCredential` from `azure-identity`. Handles managed identities (system + user-assigned), service principals (secret/cert), workload identity federation, and more. Requires the `azure-identity` extra. |
-| 3 | **Managed Identity (IMDS)** | Queries the Azure IMDS endpoint directly. Zero-dependency fallback for VMs/VMSS. |
+| 2 | **Azure Identity** | Uses `DefaultAzureCredential` from `azure-identity`. Handles managed identities (system + user-assigned), service principals (secret/cert), workload identity federation, and more. |
 
 ## Configuration
 
@@ -55,7 +47,7 @@ By default, providers are tried in the order above. To force a specific one:
 
 ```bash
 # Environment variable
-export ARTIFACTS_KEYRING_NOFUSS_PROVIDER=azure_cli  # or: azure_identity, managed_identity
+export ARTIFACTS_KEYRING_NOFUSS_PROVIDER=azure_cli  # or: azure_identity
 ```
 
 Or in `~/.config/python_keyring/keyringrc.cfg`:
@@ -85,7 +77,7 @@ export AZURE_TENANT_ID=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
 export AZURE_CLIENT_SECRET=your-secret
 ```
 
-This requires the `azure-identity` extra. The service principal must have
+This requires the `azure-identity` package (included as a dependency). The service principal must have
 permissions on the Azure DevOps feed (e.g. Feed Reader).
 
 ## Usage with pip
