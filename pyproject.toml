@@ -81,3 +81,4 @@ module = "tests.*"
 disallow_untyped_decorators = false
 
 [tool.setuptools_scm]
+write_to = "src/artifacts_keyring_nofuss/_version.py"
