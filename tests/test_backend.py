@@ -14,11 +14,26 @@ from artifacts_keyring_nofuss._backend import (
     _discover,
     _ensure_scheme,
     _hostname_matches,
+    _is_service_principal_token,
     _is_supported,
     _strip_userinfo,
     _validate_auth_uri,
     _validate_vsts_authority,
 )
+
+
+def _make_jwt(claims: dict[str, str]) -> str:
+    """Build a fake JWT with the given payload claims."""
+    header = base64.urlsafe_b64encode(b'{"alg":"RS256"}').rstrip(b"=").decode()
+    payload = (
+        base64.urlsafe_b64encode(json.dumps(claims).encode()).rstrip(b"=").decode()
+    )
+    return f"{header}.{payload}.signature"
+
+
+# Pre-built tokens for tests that need JWT claim detection
+USER_JWT = _make_jwt({"upn": "user@example.com", "idtyp": "user", "oid": "u-123"})
+SP_JWT = _make_jwt({"oid": "sp-123", "idtyp": "app", "appid": "client-id"})
 
 # ---------------------------------------------------------------------------
 # _ensure_scheme
@@ -308,23 +323,16 @@ class TestDiscover:
 
 
 class TestAccountFromToken:
-    def _make_jwt(self, claims: dict[str, str]) -> str:
-        header = base64.urlsafe_b64encode(b'{"alg":"RS256"}').rstrip(b"=").decode()
-        payload = (
-            base64.urlsafe_b64encode(json.dumps(claims).encode()).rstrip(b"=").decode()
-        )
-        return f"{header}.{payload}.signature"
-
     def test_extracts_upn(self) -> None:
-        token = self._make_jwt({"upn": "user@example.com"})
+        token = _make_jwt({"upn": "user@example.com"})
         assert _account_from_token(token) == "user@example.com"
 
     def test_extracts_unique_name(self) -> None:
-        token = self._make_jwt({"unique_name": "user@example.com"})
+        token = _make_jwt({"unique_name": "user@example.com"})
         assert _account_from_token(token) == "user@example.com"
 
     def test_extracts_oid(self) -> None:
-        token = self._make_jwt({"oid": "abc-123"})
+        token = _make_jwt({"oid": "abc-123"})
         assert _account_from_token(token) == "abc-123"
 
     def test_returns_none_for_garbage(self) -> None:
@@ -347,7 +355,7 @@ class TestCacheTTL:
         mock_exchange: mock.MagicMock,
     ) -> None:
         mock_discover.return_value = ("tenant", "https://app.vssps.visualstudio.com")
-        mock_chain.return_value = "bearer-token"
+        mock_chain.return_value = USER_JWT
         mock_exchange.return_value = "session-token"
 
         backend = ArtifactsKeyringBackend()
@@ -371,7 +379,7 @@ class TestCacheTTL:
 
             # Advance time past TTL (50 min = 3000s)
             now = 4100.0
-            mock_chain.return_value = "new-bearer-token"
+            mock_chain.return_value = USER_JWT
             mock_exchange.return_value = "new-session-token"
             cred3 = backend.get_credential(url, None)
             assert cred3 is not None
@@ -398,7 +406,7 @@ class TestSessionTokenDefault:
         mock_exchange: mock.MagicMock,
     ) -> None:
         mock_discover.return_value = ("tenant", "https://app.vssps.visualstudio.com")
-        mock_chain.return_value = "my-bearer-token"
+        mock_chain.return_value = USER_JWT
         mock_exchange.return_value = "my-session-token"
 
         backend = ArtifactsKeyringBackend()
@@ -409,7 +417,7 @@ class TestSessionTokenDefault:
         assert cred.username == "VssSessionToken"
         assert cred.password == "my-session-token"
         mock_exchange.assert_called_once_with(
-            "my-bearer-token", "https://app.vssps.visualstudio.com"
+            USER_JWT, "https://app.vssps.visualstudio.com"
         )
 
     @mock.patch("artifacts_keyring_nofuss._backend._session_token.exchange")
@@ -422,7 +430,7 @@ class TestSessionTokenDefault:
         mock_exchange: mock.MagicMock,
     ) -> None:
         mock_discover.return_value = ("tenant", "https://app.vssps.visualstudio.com")
-        mock_chain.return_value = "my-bearer-token"
+        mock_chain.return_value = USER_JWT
         mock_exchange.return_value = "my-session-token"
 
         backend = ArtifactsKeyringBackend()
@@ -441,7 +449,7 @@ class TestSessionTokenDefault:
         mock_exchange: mock.MagicMock,
     ) -> None:
         mock_discover.return_value = ("tenant", "https://app.vssps.visualstudio.com")
-        mock_chain.return_value = "bearer-token"
+        mock_chain.return_value = USER_JWT
         mock_exchange.return_value = "session-token-123"
 
         backend = ArtifactsKeyringBackend()
@@ -463,7 +471,7 @@ class TestSessionTokenDefault:
         mock_exchange: mock.MagicMock,
     ) -> None:
         mock_discover.return_value = ("tenant", "https://app.vssps.visualstudio.com")
-        mock_chain.return_value = "bearer-token"
+        mock_chain.return_value = USER_JWT
         mock_exchange.return_value = None
 
         backend = ArtifactsKeyringBackend()
@@ -506,3 +514,115 @@ class TestDiscoverWithUserinfo:
         called_url = mock_get.call_args[0][0]
         assert "__token__" not in called_url
         assert "pkgs.dev.azure.com" in called_url
+
+
+# ---------------------------------------------------------------------------
+# Service principal tokens (MI/SP/WIF) — bearer returned directly
+# ---------------------------------------------------------------------------
+
+
+class TestServicePrincipalTokens:
+    """SP tokens skip session exchange and return the Entra bearer directly."""
+
+    @mock.patch("artifacts_keyring_nofuss._backend._session_token.exchange")
+    @mock.patch("artifacts_keyring_nofuss._backend._discover")
+    @mock.patch("artifacts_keyring_nofuss._backend._provider.run_chain")
+    def test_sp_token_skips_session_exchange(
+        self,
+        mock_chain: mock.MagicMock,
+        mock_discover: mock.MagicMock,
+        mock_exchange: mock.MagicMock,
+    ) -> None:
+        mock_discover.return_value = ("tenant", "https://app.vssps.visualstudio.com")
+        mock_chain.return_value = SP_JWT
+
+        backend = ArtifactsKeyringBackend()
+        url = "https://pkgs.dev.azure.com/org/proj/_packaging/feed/pypi/simple/"
+        cred = backend.get_credential(url, None)
+
+        assert cred is not None
+        assert cred.username == "bearer"
+        assert cred.password == SP_JWT
+        # Session exchange should NOT be called for SP tokens
+        mock_exchange.assert_not_called()
+
+    @mock.patch("artifacts_keyring_nofuss._backend._session_token.exchange")
+    @mock.patch("artifacts_keyring_nofuss._backend._discover")
+    @mock.patch("artifacts_keyring_nofuss._backend._provider.run_chain")
+    def test_user_token_does_session_exchange(
+        self,
+        mock_chain: mock.MagicMock,
+        mock_discover: mock.MagicMock,
+        mock_exchange: mock.MagicMock,
+    ) -> None:
+        mock_discover.return_value = ("tenant", "https://app.vssps.visualstudio.com")
+        mock_chain.return_value = USER_JWT
+        mock_exchange.return_value = "session-token"
+
+        backend = ArtifactsKeyringBackend()
+        url = "https://pkgs.dev.azure.com/org/proj/_packaging/feed/pypi/simple/"
+        cred = backend.get_credential(url, None)
+
+        assert cred is not None
+        assert cred.username == "VssSessionToken"
+        assert cred.password == "session-token"
+        mock_exchange.assert_called_once_with(
+            USER_JWT, "https://app.vssps.visualstudio.com"
+        )
+
+    @mock.patch("artifacts_keyring_nofuss._backend._session_token.exchange")
+    @mock.patch("artifacts_keyring_nofuss._backend._discover")
+    @mock.patch("artifacts_keyring_nofuss._backend._provider.run_chain")
+    def test_sp_token_get_password(
+        self,
+        mock_chain: mock.MagicMock,
+        mock_discover: mock.MagicMock,
+        mock_exchange: mock.MagicMock,
+    ) -> None:
+        mock_discover.return_value = ("tenant", "https://app.vssps.visualstudio.com")
+        mock_chain.return_value = SP_JWT
+
+        backend = ArtifactsKeyringBackend()
+        url = "https://pkgs.dev.azure.com/org/proj/_packaging/feed/pypi/simple/"
+        password = backend.get_password(url, None)
+
+        assert password == SP_JWT
+        mock_exchange.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# _is_service_principal_token
+# ---------------------------------------------------------------------------
+
+
+class TestIsServicePrincipalToken:
+    def test_app_idtyp_is_sp(self) -> None:
+        token = _make_jwt({"idtyp": "app", "oid": "sp-123"})
+        assert _is_service_principal_token(token) is True
+
+    def test_user_idtyp_is_not_sp(self) -> None:
+        token = _make_jwt({"idtyp": "user", "upn": "user@example.com"})
+        assert _is_service_principal_token(token) is False
+
+    def test_scp_claim_means_delegated(self) -> None:
+        token = _make_jwt({"oid": "u-123", "scp": "user_impersonation"})
+        assert _is_service_principal_token(token) is False
+
+    def test_roles_claim_means_app_only(self) -> None:
+        token = _make_jwt({"oid": "sp-123", "roles": "Packaging.Read"})
+        assert _is_service_principal_token(token) is True
+
+    def test_no_idtyp_with_upn_is_user(self) -> None:
+        token = _make_jwt({"upn": "user@example.com", "oid": "u-123"})
+        assert _is_service_principal_token(token) is False
+
+    def test_no_idtyp_with_preferred_username_is_user(self) -> None:
+        token = _make_jwt({"preferred_username": "user@example.com", "oid": "u-123"})
+        assert _is_service_principal_token(token) is False
+
+    def test_unknown_claims_default_to_user(self) -> None:
+        token = _make_jwt({"oid": "mystery-123"})
+        assert _is_service_principal_token(token) is False
+
+    def test_garbage_token_defaults_to_user(self) -> None:
+        assert _is_service_principal_token("not-a-jwt") is False

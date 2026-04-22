@@ -3,9 +3,13 @@
 import logging
 import os
 import sys
-from importlib.metadata import version
 
-__version__ = version(__name__)
+try:
+    from ._version import version as __version__
+except ImportError:
+    from importlib.metadata import version
+
+    __version__ = version(__name__)
 
 
 def _configure_logging() -> None:

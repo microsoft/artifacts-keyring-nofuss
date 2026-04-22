@@ -28,7 +28,7 @@ This is a [keyring](https://pypi.org/project/keyring/) backend plugin (~435 line
 **Provider chain** (`_provider.py`):
 - Providers implement the `TokenProvider` Protocol (structural subtyping — no base class inheritance)
 - `run_chain()` tries each provider in order, catches all exceptions, and returns the first successful token
-- Default chain: `["azure_cli", "managed_identity"]` — overridable via `ARTIFACTS_KEYRING_NOFUSS_PROVIDER` env var or `keyringrc.cfg`
+- Default chain: `["azure_cli", "azure_identity"]` — overridable via `ARTIFACTS_KEYRING_NOFUSS_PROVIDER` env var or `keyringrc.cfg`
 - New providers: add the implementation in a `_<name>.py` module, then register it in the `PROVIDERS` dict and `DEFAULT_CHAIN` list in `_backend.py`
 
 **Keyring integration**:

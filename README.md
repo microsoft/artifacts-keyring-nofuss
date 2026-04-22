@@ -3,8 +3,7 @@
 Minimal, pure-Python keyring backend for Azure DevOps Artifacts feeds.
 
 Replaces the official `artifacts-keyring` (which wraps a ~100 MB .NET binary) with a
-no-fuss implementation that covers the most common Linux auth scenarios using raw
-HTTP — no `msal`, no `azure-identity`, no .NET.
+no-fuss, pure-Python implementation — no .NET required.
 
 ## Install
 
@@ -26,16 +25,18 @@ Artifacts feed, this backend:
 1. **Discovers** the Azure AD tenant by making an unauthenticated request to the feed
    URL and parsing the `WWW-Authenticate` header.
 2. **Obtains a bearer token** using one of the supported auth flows (see below).
-3. **Exchanges** the bearer token for a narrower `VssSessionToken` scoped to
-   `vso.packaging`.
-4. **Returns** the session token to the caller as Basic auth credentials.
+3. For **user tokens** (Azure CLI): **exchanges** the bearer token for a narrower
+   `VssSessionToken` scoped to `vso.packaging`.
+4. For **service principal tokens** (managed identity, SP, WIF): returns the Entra
+   bearer token directly as Basic auth credentials.
+5. **Returns** the credentials to the caller.
 
 ## Auth flows (priority order)
 
 | # | Flow | How it works |
 |---|------|-------------|
 | 1 | **Azure CLI** | Runs `az account get-access-token`. Most common for local dev. |
-| 2 | **Managed Identity** | Queries the Azure IMDS endpoint. For VMs/containers on Azure. |
+| 2 | **Azure Identity** | Uses `DefaultAzureCredential` from `azure-identity`. Handles managed identities (system + user-assigned), service principals (secret/cert), workload identity federation, and more. |
 
 ## Configuration
 
@@ -45,7 +46,7 @@ By default, providers are tried in the order above. To force a specific one:
 
 ```bash
 # Environment variable
-export ARTIFACTS_KEYRING_NOFUSS_PROVIDER=azure_cli  # or: managed_identity
+export ARTIFACTS_KEYRING_NOFUSS_PROVIDER=azure_cli  # or: azure_identity
 ```
 
 Or in `~/.config/python_keyring/keyringrc.cfg`:
@@ -64,6 +65,19 @@ export AZURE_CLIENT_ID=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
 ```
 
 When unset, system-assigned managed identity is used.
+
+### Service principal with secret
+
+Set the standard Azure Identity environment variables:
+
+```bash
+export AZURE_CLIENT_ID=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+export AZURE_TENANT_ID=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+export AZURE_CLIENT_SECRET=your-secret
+```
+
+This requires the `azure-identity` package (included as a dependency). The service principal must have
+permissions on the Azure DevOps feed (e.g. Feed Reader).
 
 ## Usage with pip
 
@@ -153,9 +167,8 @@ This package handles authentication tokens. Key security properties:
   exfiltration via DNS hijacking or rogue proxy responses.
 - **Short-lived tokens**: Bearer tokens are not persisted to disk. In-memory caching
   has a 50-minute TTL (tokens typically live 60–75 minutes).
-- **Narrow scope**: Session tokens are scoped to `vso.packaging` (read-only,
-  org-scoped).
+- **Narrow scope**: User tokens (Azure CLI) are exchanged for session tokens scoped to
+  `vso.packaging` (read-only). Service principal tokens (MI/SP/WIF) are returned
+  directly — scope is determined by the identity's Azure DevOps permissions.
 - **No CWD config**: Provider configuration is read only from `~/.config/` or
   environment variables, never from the working directory.
-- **Minimal dependencies**: Only `keyring` and `requests` — no large frameworks with
-  broad attack surface.
