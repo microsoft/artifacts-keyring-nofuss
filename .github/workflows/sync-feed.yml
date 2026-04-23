@@ -41,6 +41,8 @@ jobs:
           FEED_URL: ${{ secrets.FEED_URL }}
           TOKEN: ${{ steps.token.outputs.token }}
         run: |
+          echo "::add-mask::${FEED_URL}"
+          echo "::add-mask::${FEED_URL#https://}"
           pip install \
             --index-url "https://PAT:${TOKEN}@${FEED_URL#https://}" \
             --upgrade --dry-run --no-deps \
