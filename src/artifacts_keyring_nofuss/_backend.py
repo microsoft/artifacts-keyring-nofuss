@@ -17,7 +17,7 @@ import requests
 from . import _constants as C
 from . import _provider, _session_token
 from ._azure_cli import AzureCliProvider
-from ._managed_identity import ManagedIdentityProvider
+from ._azure_identity import AzureIdentityProvider
 
 log = logging.getLogger(__name__)
 
@@ -26,21 +26,57 @@ _CACHE_TTL_SECONDS = 50 * 60
 
 PROVIDERS: dict[str, type[_provider.TokenProvider]] = {
     "azure_cli": AzureCliProvider,
-    "managed_identity": ManagedIdentityProvider,
+    "azure_identity": AzureIdentityProvider,
 }
 
-DEFAULT_CHAIN = ["azure_cli", "managed_identity"]
+DEFAULT_CHAIN = ["azure_cli", "azure_identity"]
+
+
+def _decode_jwt_claims(bearer: str) -> dict[str, str]:
+    """Decode the payload of a JWT without validation. Returns {} on failure."""
+    try:
+        payload = bearer.split(".")[1]
+        payload += "=" * (-len(payload) % 4)
+        return json.loads(base64.urlsafe_b64decode(payload))  # type: ignore[no-any-return]
+    except Exception:
+        return {}
 
 
 def _account_from_token(bearer: str) -> str | None:
     """Extract the user principal name from a JWT bearer token (no validation)."""
-    try:
-        payload = bearer.split(".")[1]
-        payload += "=" * (-len(payload) % 4)
-        claims: dict[str, str] = json.loads(base64.urlsafe_b64decode(payload))
-        return claims.get("upn") or claims.get("unique_name") or claims.get("oid")
-    except Exception:
-        return None
+    claims = _decode_jwt_claims(bearer)
+    return claims.get("upn") or claims.get("unique_name") or claims.get("oid")
+
+
+def _is_service_principal_token(bearer: str) -> bool:  # noqa: PLR0911
+    """Detect whether a bearer token belongs to a service principal.
+
+    Inspects JWT claims in priority order to decide whether the token can be
+    exchanged for a VssSessionToken (user) or must be returned directly (SP).
+    """
+    claims = _decode_jwt_claims(bearer)
+    if not claims:
+        return False  # fail safe: treat as user
+
+    # 1. Authoritative when present
+    idtyp = claims.get("idtyp")
+    if idtyp == "app":
+        return True
+    if idtyp == "user":
+        return False
+
+    # 2. Strong behavioral signal
+    if "scp" in claims:
+        return False  # delegated user token
+    if "roles" in claims:
+        return True  # app-only token
+
+    # 3. Weak fallback (best-effort only)
+    if "preferred_username" in claims or "upn" in claims:
+        return False
+
+    # Unknown → assume user (safe default: exchange will fail gracefully)
+    return False
 
 
 def _ensure_scheme(url: str) -> str:
@@ -216,7 +252,7 @@ class ArtifactsKeyringBackend(keyring.backend.KeyringBackend):
         super().__init__()  # type: ignore[no-untyped-call]
         self._cache: dict[str, tuple[keyring.credentials.SimpleCredential, float]] = {}
 
-    def get_credential(  # noqa: PLR0911, C901
+    def get_credential(  # noqa: PLR0911, PLR0912, C901
         self,
         service: str,
         username: str | None,  # noqa: ARG002
@@ -252,8 +288,8 @@ class ArtifactsKeyringBackend(keyring.backend.KeyringBackend):
             chain = [PROVIDERS[name]() for name in DEFAULT_CHAIN]
 
         # Get bearer token
-        bearer = _provider.run_chain(chain, tenant_id)
-        if bearer is None:
+        result = _provider.run_chain(chain, tenant_id)
+        if result is None:
             log.warning(
                 "all auth providers failed for %s — are you logged in? "
                 "Try: az login --tenant %s",
@@ -262,24 +298,37 @@ class ArtifactsKeyringBackend(keyring.backend.KeyringBackend):
             )
             return None
 
+        bearer = result
         account = _account_from_token(bearer)
 
-        # Exchange bearer for a narrower VssSessionToken
-        session_tok = _session_token.exchange(bearer, vsts_authority)
-        if session_tok is None:
+        if _is_service_principal_token(bearer):
+            # MI / SP / WIF tokens cannot be exchanged for a VssSessionToken.
+            # Return the Entra bearer token directly as Basic auth password.
             if account:
-                log.warning(
-                    "session token exchange failed for %s (authenticated as %s)",
+                log.debug(
+                    "authenticated to %s as %s (service principal)",
                     service,
                     account,
                 )
-            else:
-                log.warning("session token exchange failed for %s", service)
-            return None
+            cred = keyring.credentials.SimpleCredential("bearer", bearer)
+        else:
+            # User tokens (e.g. Azure CLI) are exchanged for a narrower
+            # VssSessionToken scoped to vso.packaging.
+            session_tok = _session_token.exchange(bearer, vsts_authority)
+            if session_tok is None:
+                if account:
+                    log.warning(
+                        "session token exchange failed for %s (authenticated as %s)",
+                        service,
+                        account,
+                    )
+                else:
+                    log.warning("session token exchange failed for %s", service)
+                return None
 
-        if account:
-            log.debug("authenticated to %s as %s", service, account)
-        cred = keyring.credentials.SimpleCredential("VssSessionToken", session_tok)
+            if account:
+                log.debug("authenticated to %s as %s", service, account)
+            cred = keyring.credentials.SimpleCredential("VssSessionToken", session_tok)
         self._cache[service] = (cred, time.monotonic())
         return cred
 
