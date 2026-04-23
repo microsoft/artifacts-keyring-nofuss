@@ -36,6 +36,8 @@ jobs:
 
       # Installing with contributor auth triggers upstream fetches
       # for any versions not yet cached in the feed.
+      # We use pip download with --platform/--python-version to cache
+      # wheels for all supported OS/Python combinations from a single runner.
       - name: Sync packages to feed
         env:
           FEED_URL: ${{ secrets.FEED_URL }}
@@ -43,7 +45,28 @@ jobs:
         run: |
           echo "::add-mask::${FEED_URL}"
           echo "::add-mask::${FEED_URL#https://}"
-          pip install \
-            --index-url "https://PAT:${TOKEN}@${FEED_URL#https://}" \
-            --upgrade --dry-run \
-            uv keyring artifacts-keyring-nofuss
+          INDEX="https://PAT:${TOKEN}@${FEED_URL#https://}"
+          PACKAGES="uv keyring artifacts-keyring-nofuss"
+
+          # Pure-python packages are resolved once (platform-independent)
+          pip download \
+            --index-url "$INDEX" \
+            --dest /tmp/sync --no-deps \
+            $PACKAGES
+
+          # Platform-specific wheels for each OS × Python version
+          for platform in \
+            manylinux_2_17_x86_64 \
+            macosx_11_0_arm64 \
+            win_amd64; do
+            for pyver in 310 311 312 313; do
+              echo "--- Syncing $platform / cp$pyver ---"
+              pip download \
+                --index-url "$INDEX" \
+                --dest /tmp/sync \
+                --platform "$platform" \
+                --python-version "$pyver" \
+                --only-binary :all: \
+                $PACKAGES 2>&1 || true
+            done
+          done
