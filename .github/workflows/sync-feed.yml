@@ -45,5 +45,5 @@ jobs:
           echo "::add-mask::${FEED_URL#https://}"
           pip install \
             --index-url "https://PAT:${TOKEN}@${FEED_URL#https://}" \
-            --upgrade --dry-run --no-deps \
+            --upgrade --dry-run \
             uv keyring artifacts-keyring-nofuss
