@@ -46,13 +46,13 @@ jobs:
           echo "::add-mask::${FEED_URL}"
           echo "::add-mask::${FEED_URL#https://}"
           INDEX="https://PAT:${TOKEN}@${FEED_URL#https://}"
-          PACKAGES="uv keyring artifacts-keyring-nofuss"
+          FAILURES=0
 
-          # Pure-python packages are resolved once (platform-independent)
+          # Pure-python packages (platform-independent)
           pip download \
             --index-url "$INDEX" \
             --dest /tmp/sync --no-deps \
-            $PACKAGES
+            keyring artifacts-keyring-nofuss
 
           # Platform-specific wheels for each OS × Python version
           for platform in \
@@ -61,12 +61,20 @@ jobs:
             win_amd64; do
             for pyver in 310 311 312 313; do
               echo "--- Syncing $platform / cp$pyver ---"
-              pip download \
+              if ! pip download \
                 --index-url "$INDEX" \
                 --dest /tmp/sync \
                 --platform "$platform" \
                 --python-version "$pyver" \
                 --only-binary :all: \
-                $PACKAGES 2>&1 || true
+                uv keyring artifacts-keyring-nofuss 2>&1; then
+                echo "::warning::Failed to sync for $platform / cp$pyver"
+                FAILURES=$((FAILURES + 1))
+              fi
             done
           done
+
+          if [ "$FAILURES" -gt 0 ]; then
+            echo "::error::$FAILURES platform/version combinations failed to sync"
+            exit 1
+          fi
