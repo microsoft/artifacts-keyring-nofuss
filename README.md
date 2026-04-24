@@ -102,6 +102,24 @@ When using `azure/login@v2` in GitHub Actions, the action automatically sets
 The workload identity provider detects these and exchanges the federated token
 for a bearer — no extra configuration needed.
 
+### GitHub Codespaces
+
+Add the [`artifacts-helper`](https://github.com/microsoft/codespace-features)
+devcontainer feature to your `.devcontainer/devcontainer.json`:
+
+```json
+{
+  "features": {
+    "ghcr.io/microsoft/codespace-features/artifacts-helper:3": {}
+  }
+}
+```
+
+This installs the `ado-codespaces-auth` VS Code extension, which creates
+`~/ado-auth-helper`. The `ado_auth_helper` provider calls it automatically —
+no `az login` needed. Sign in via the "Click to authenticate" prompt in the
+VS Code status bar on first use.
+
 
 ## Usage with pip
 
