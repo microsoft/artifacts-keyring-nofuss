@@ -884,6 +884,16 @@ class TestAdoAuthHelperProvider:
         ):
             assert provider.get_token("any-tenant") is None
 
+    @mock.patch("artifacts_keyring_nofuss._ado_auth_helper.subprocess.run")
+    def test_returns_none_on_permission_error(self, mock_run: mock.MagicMock) -> None:
+        mock_run.side_effect = PermissionError("not executable")
+        provider = AdoAuthHelperProvider()
+        with mock.patch(
+            "artifacts_keyring_nofuss._ado_auth_helper._HELPER_PATH",
+            mock.MagicMock(is_file=mock.MagicMock(return_value=True)),
+        ):
+            assert provider.get_token("any-tenant") is None
+
     def test_ignores_tenant_id(self) -> None:
         """The helper doesn't need a tenant — it gets tokens from VS Code."""
         provider = AdoAuthHelperProvider()

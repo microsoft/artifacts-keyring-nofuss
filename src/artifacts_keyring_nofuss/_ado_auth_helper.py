@@ -35,11 +35,8 @@ class AdoAuthHelperProvider:
                 timeout=10,
                 check=False,
             )
-        except FileNotFoundError:
-            log.debug("ado-auth-helper disappeared")
-            return None
-        except subprocess.TimeoutExpired:
-            log.debug("ado-auth-helper timed out")
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            log.debug("ado-auth-helper could not be executed: %s", exc)
             return None
 
         if result.returncode != 0:
