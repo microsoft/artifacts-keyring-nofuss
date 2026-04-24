@@ -18,6 +18,8 @@ from . import _constants as C
 from . import _provider, _session_token
 from ._azure_cli import AzureCliProvider
 from ._azure_identity import AzureIdentityProvider
+from ._env_var import EnvVarProvider
+from ._workload_identity import WorkloadIdentityProvider
 
 log = logging.getLogger(__name__)
 
@@ -25,11 +27,13 @@ log = logging.getLogger(__name__)
 _CACHE_TTL_SECONDS = 50 * 60
 
 PROVIDERS: dict[str, type[_provider.TokenProvider]] = {
+    "env_var": EnvVarProvider,
     "azure_cli": AzureCliProvider,
+    "workload_identity": WorkloadIdentityProvider,
     "azure_identity": AzureIdentityProvider,
 }
 
-DEFAULT_CHAIN = ["azure_cli", "azure_identity"]
+DEFAULT_CHAIN = ["env_var", "azure_cli", "workload_identity", "azure_identity"]
 
 
 def _decode_jwt_claims(bearer: str) -> dict[str, str]:

@@ -35,8 +35,10 @@ Artifacts feed, this backend:
 
 | # | Flow | How it works |
 |---|------|-------------|
-| 1 | **Azure CLI** | Runs `az account get-access-token`. Most common for local dev. |
-| 2 | **Azure Identity** | Uses `DefaultAzureCredential` from `azure-identity`. Handles managed identities (system + user-assigned), service principals (secret/cert), workload identity federation, and more. |
+| 1 | **Environment variable** | Reads a bearer token from `ARTIFACTS_KEYRING_NOFUSS_TOKEN` (or `VSS_NUGET_ACCESSTOKEN` as fallback). Best for CI and Docker builds. |
+| 2 | **Azure CLI** | Runs `az account get-access-token`. Most common for local dev. |
+| 3 | **Workload Identity** | Exchanges a federated token via `AZURE_CLIENT_ID` + `AZURE_FEDERATED_TOKEN_FILE` + `AZURE_TENANT_ID`. Best for GitHub Actions with `azure/login@v2`. |
+| 4 | **Azure Identity** | Uses `DefaultAzureCredential` from `azure-identity`. Handles managed identities (system + user-assigned), service principals (secret/cert), workload identity federation, and more. |
 
 ## Configuration
 
@@ -46,7 +48,7 @@ By default, providers are tried in the order above. To force a specific one:
 
 ```bash
 # Environment variable
-export ARTIFACTS_KEYRING_NOFUSS_PROVIDER=azure_cli  # or: azure_identity
+export ARTIFACTS_KEYRING_NOFUSS_PROVIDER=azure_cli  # or: env_var, workload_identity, azure_identity
 ```
 
 Or in `~/.config/python_keyring/keyringrc.cfg`:
@@ -78,6 +80,25 @@ export AZURE_CLIENT_SECRET=your-secret
 
 This requires the `azure-identity` package (included as a dependency). The service principal must have
 permissions on the Azure DevOps feed (e.g. Feed Reader).
+
+### Bearer token via environment variable
+
+For CI pipelines and Docker builds, pass a pre-minted bearer token:
+
+```bash
+export ARTIFACTS_KEYRING_NOFUSS_TOKEN=<bearer-token>
+```
+
+For backward compatibility with existing `artifacts-keyring` CI configs,
+`VSS_NUGET_ACCESSTOKEN` is also accepted as a fallback.
+
+### Workload Identity Federation (GitHub Actions OIDC)
+
+When using `azure/login@v2` in GitHub Actions, the action automatically sets
+`AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, and `AZURE_FEDERATED_TOKEN_FILE`.
+The workload identity provider detects these and exchanges the federated token
+for a bearer — no extra configuration needed.
+
 
 ## Usage with pip
 
