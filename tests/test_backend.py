@@ -7,6 +7,7 @@ import json
 from unittest import mock
 
 import pytest
+import requests
 
 from artifacts_keyring_nofuss._backend import (
     ArtifactsKeyringBackend,
@@ -20,6 +21,8 @@ from artifacts_keyring_nofuss._backend import (
     _validate_auth_uri,
     _validate_vsts_authority,
 )
+from artifacts_keyring_nofuss._env_var import ENV_VAR, FALLBACK_ENV_VAR, EnvVarProvider
+from artifacts_keyring_nofuss._workload_identity import WorkloadIdentityProvider
 
 
 def _make_jwt(claims: dict[str, str]) -> str:
@@ -626,3 +629,184 @@ class TestIsServicePrincipalToken:
 
     def test_garbage_token_defaults_to_user(self) -> None:
         assert _is_service_principal_token("not-a-jwt") is False
+
+
+# ---------------------------------------------------------------------------
+# EnvVarProvider
+# ---------------------------------------------------------------------------
+
+
+class TestEnvVarProvider:
+    def test_returns_token_when_set(self) -> None:
+        provider = EnvVarProvider()
+        with mock.patch.dict("os.environ", {ENV_VAR: "my-bearer-token"}):
+            assert provider.get_token("any-tenant") == "my-bearer-token"
+
+    def test_returns_none_when_unset(self) -> None:
+        provider = EnvVarProvider()
+        with mock.patch.dict("os.environ", {}, clear=True):
+            assert provider.get_token("any-tenant") is None
+
+    def test_returns_none_when_empty(self) -> None:
+        provider = EnvVarProvider()
+        with mock.patch.dict("os.environ", {ENV_VAR: ""}):
+            assert provider.get_token("any-tenant") is None
+
+    def test_strips_whitespace(self) -> None:
+        provider = EnvVarProvider()
+        with mock.patch.dict("os.environ", {ENV_VAR: "  my-token  \n"}):
+            assert provider.get_token("any-tenant") == "my-token"
+
+    def test_fallback_to_vss_nuget_accesstoken(self) -> None:
+        provider = EnvVarProvider()
+        with mock.patch.dict(
+            "os.environ", {FALLBACK_ENV_VAR: "fallback-token"}, clear=True
+        ):
+            assert provider.get_token("any-tenant") == "fallback-token"
+
+    def test_primary_takes_precedence_over_fallback(self) -> None:
+        provider = EnvVarProvider()
+        with mock.patch.dict(
+            "os.environ",
+            {ENV_VAR: "primary-token", FALLBACK_ENV_VAR: "fallback-token"},
+        ):
+            assert provider.get_token("any-tenant") == "primary-token"
+
+
+class TestEnvVarProviderIntegration:
+    """End-to-end: env var token flows through to a session token."""
+
+    @mock.patch("artifacts_keyring_nofuss._backend._session_token.exchange")
+    @mock.patch("artifacts_keyring_nofuss._backend._discover")
+    def test_env_var_token_used_for_exchange(
+        self,
+        mock_discover: mock.MagicMock,
+        mock_exchange: mock.MagicMock,
+    ) -> None:
+        mock_discover.return_value = ("tenant", "https://app.vssps.visualstudio.com")
+        mock_exchange.return_value = "my-session-token"
+
+        backend = ArtifactsKeyringBackend()
+        url = "https://pkgs.dev.azure.com/org/proj/_packaging/feed/pypi/simple/"
+
+        with mock.patch.dict("os.environ", {ENV_VAR: "env-bearer-token"}):
+            cred = backend.get_credential(url, None)
+
+        assert cred is not None
+        assert cred.username == "VssSessionToken"
+        assert cred.password == "my-session-token"
+        mock_exchange.assert_called_once_with(
+            "env-bearer-token", "https://app.vssps.visualstudio.com"
+        )
+
+
+# ---------------------------------------------------------------------------
+# WorkloadIdentityProvider
+# ---------------------------------------------------------------------------
+
+
+class TestWorkloadIdentityProvider:
+    def test_returns_none_when_env_vars_missing(self) -> None:
+        provider = WorkloadIdentityProvider()
+        with mock.patch.dict("os.environ", {}, clear=True):
+            assert provider.get_token("any-tenant") is None
+
+    def test_returns_none_when_client_id_missing(self) -> None:
+        provider = WorkloadIdentityProvider()
+        with mock.patch.dict(
+            "os.environ",
+            {
+                "AZURE_FEDERATED_TOKEN_FILE": "/mock/federated/token",
+                "AZURE_TENANT_ID": "t",
+            },
+            clear=True,
+        ):
+            assert provider.get_token("any-tenant") is None
+
+    def test_returns_none_when_token_file_missing(self) -> None:
+        provider = WorkloadIdentityProvider()
+        with mock.patch.dict(
+            "os.environ",
+            {"AZURE_CLIENT_ID": "cid", "AZURE_TENANT_ID": "t"},
+            clear=True,
+        ):
+            assert provider.get_token("any-tenant") is None
+
+    def test_returns_none_when_token_file_unreadable(self) -> None:
+        provider = WorkloadIdentityProvider()
+        with mock.patch.dict(
+            "os.environ",
+            {
+                "AZURE_CLIENT_ID": "cid",
+                "AZURE_FEDERATED_TOKEN_FILE": "/nonexistent/path",
+            },
+            clear=True,
+        ):
+            assert provider.get_token("any-tenant") is None
+
+    @mock.patch("artifacts_keyring_nofuss._workload_identity.requests.post")
+    def test_exchanges_federated_token(self, mock_post: mock.MagicMock) -> None:
+        mock_post.return_value.json.return_value = {"access_token": "bearer-123"}
+        mock_post.return_value.raise_for_status = mock.MagicMock()
+
+        provider = WorkloadIdentityProvider()
+        with (
+            mock.patch.dict(
+                "os.environ",
+                {
+                    "AZURE_CLIENT_ID": "my-client-id",
+                    "AZURE_FEDERATED_TOKEN_FILE": "/mock/federated/token",
+                    "AZURE_TENANT_ID": "my-tenant",
+                },
+                clear=True,
+            ),
+            mock.patch("pathlib.Path.read_text", return_value="federated-jwt\n"),
+        ):
+            result = provider.get_token("discovered-tenant")
+
+        assert result == "bearer-123"
+        # Should use AZURE_TENANT_ID over discovered tenant
+        call_args = mock_post.call_args
+        assert "my-tenant" in call_args[0][0]
+        assert call_args[1]["data"]["client_id"] == "my-client-id"
+        assert call_args[1]["data"]["client_assertion"] == "federated-jwt"
+
+    @mock.patch("artifacts_keyring_nofuss._workload_identity.requests.post")
+    def test_falls_back_to_discovered_tenant(self, mock_post: mock.MagicMock) -> None:
+        mock_post.return_value.json.return_value = {"access_token": "bearer-456"}
+        mock_post.return_value.raise_for_status = mock.MagicMock()
+
+        provider = WorkloadIdentityProvider()
+        with (
+            mock.patch.dict(
+                "os.environ",
+                {
+                    "AZURE_CLIENT_ID": "cid",
+                    "AZURE_FEDERATED_TOKEN_FILE": "/mock/federated/token",
+                },
+                clear=True,
+            ),
+            mock.patch("pathlib.Path.read_text", return_value="federated-jwt"),
+        ):
+            result = provider.get_token("discovered-tenant")
+
+        assert result == "bearer-456"
+        assert "discovered-tenant" in mock_post.call_args[0][0]
+
+    @mock.patch("artifacts_keyring_nofuss._workload_identity.requests.post")
+    def test_returns_none_on_http_error(self, mock_post: mock.MagicMock) -> None:
+        mock_post.return_value.raise_for_status.side_effect = requests.HTTPError("401")
+
+        provider = WorkloadIdentityProvider()
+        with (
+            mock.patch.dict(
+                "os.environ",
+                {
+                    "AZURE_CLIENT_ID": "cid",
+                    "AZURE_FEDERATED_TOKEN_FILE": "/mock/federated/token",
+                },
+                clear=True,
+            ),
+            mock.patch("pathlib.Path.read_text", return_value="federated-jwt"),
+        ):
+            assert provider.get_token("tenant") is None
