@@ -1,5 +1,7 @@
 # artifacts-keyring-nofuss
 
+[![CI](https://github.com/microsoft/artifacts-keyring-nofuss/actions/workflows/ci.yml/badge.svg)](https://github.com/microsoft/artifacts-keyring-nofuss/actions/workflows/ci.yml)
+
 Minimal, pure-Python keyring backend for Azure DevOps Artifacts feeds.
 
 Replaces the official `artifacts-keyring` (which wraps a ~100 MB .NET binary) with a
