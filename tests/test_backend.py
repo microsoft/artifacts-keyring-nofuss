@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import base64
 import json
+import subprocess
 from unittest import mock
 
 import pytest
 import requests
 
+from artifacts_keyring_nofuss._ado_auth_helper import AdoAuthHelperProvider
 from artifacts_keyring_nofuss._backend import (
     ArtifactsKeyringBackend,
     _account_from_token,
@@ -810,3 +812,85 @@ class TestWorkloadIdentityProvider:
             mock.patch("pathlib.Path.read_text", return_value="federated-jwt"),
         ):
             assert provider.get_token("tenant") is None
+
+
+# ---------------------------------------------------------------------------
+# AdoAuthHelperProvider
+# ---------------------------------------------------------------------------
+
+
+class TestAdoAuthHelperProvider:
+    def test_returns_none_when_helper_missing(self) -> None:
+        provider = AdoAuthHelperProvider()
+        with mock.patch(
+            "artifacts_keyring_nofuss._ado_auth_helper._HELPER_PATH",
+            mock.MagicMock(is_file=mock.MagicMock(return_value=False)),
+        ):
+            assert provider.get_token("any-tenant") is None
+
+    @mock.patch("artifacts_keyring_nofuss._ado_auth_helper.subprocess.run")
+    def test_returns_token_on_success(self, mock_run: mock.MagicMock) -> None:
+        mock_run.return_value = mock.MagicMock(
+            returncode=0, stdout="bearer-token-123\n", stderr=""
+        )
+        provider = AdoAuthHelperProvider()
+        with mock.patch(
+            "artifacts_keyring_nofuss._ado_auth_helper._HELPER_PATH",
+            mock.MagicMock(is_file=mock.MagicMock(return_value=True)),
+        ):
+            assert provider.get_token("any-tenant") == "bearer-token-123"
+
+    @mock.patch("artifacts_keyring_nofuss._ado_auth_helper.subprocess.run")
+    def test_returns_none_on_nonzero_exit(self, mock_run: mock.MagicMock) -> None:
+        mock_run.return_value = mock.MagicMock(
+            returncode=1, stdout="", stderr="not connected"
+        )
+        provider = AdoAuthHelperProvider()
+        with mock.patch(
+            "artifacts_keyring_nofuss._ado_auth_helper._HELPER_PATH",
+            mock.MagicMock(is_file=mock.MagicMock(return_value=True)),
+        ):
+            assert provider.get_token("any-tenant") is None
+
+    @mock.patch("artifacts_keyring_nofuss._ado_auth_helper.subprocess.run")
+    def test_returns_none_on_empty_output(self, mock_run: mock.MagicMock) -> None:
+        mock_run.return_value = mock.MagicMock(returncode=0, stdout="", stderr="")
+        provider = AdoAuthHelperProvider()
+        with mock.patch(
+            "artifacts_keyring_nofuss._ado_auth_helper._HELPER_PATH",
+            mock.MagicMock(is_file=mock.MagicMock(return_value=True)),
+        ):
+            assert provider.get_token("any-tenant") is None
+
+    @mock.patch("artifacts_keyring_nofuss._ado_auth_helper.subprocess.run")
+    def test_returns_none_on_timeout(self, mock_run: mock.MagicMock) -> None:
+        mock_run.side_effect = subprocess.TimeoutExpired(
+            cmd="ado-auth-helper", timeout=10
+        )
+        provider = AdoAuthHelperProvider()
+        with mock.patch(
+            "artifacts_keyring_nofuss._ado_auth_helper._HELPER_PATH",
+            mock.MagicMock(is_file=mock.MagicMock(return_value=True)),
+        ):
+            assert provider.get_token("any-tenant") is None
+
+    @mock.patch("artifacts_keyring_nofuss._ado_auth_helper.subprocess.run")
+    def test_returns_none_on_file_not_found(self, mock_run: mock.MagicMock) -> None:
+        mock_run.side_effect = FileNotFoundError()
+        provider = AdoAuthHelperProvider()
+        with mock.patch(
+            "artifacts_keyring_nofuss._ado_auth_helper._HELPER_PATH",
+            mock.MagicMock(is_file=mock.MagicMock(return_value=True)),
+        ):
+            assert provider.get_token("any-tenant") is None
+
+    def test_ignores_tenant_id(self) -> None:
+        """The helper doesn't need a tenant — it gets tokens from VS Code."""
+        provider = AdoAuthHelperProvider()
+        with mock.patch(
+            "artifacts_keyring_nofuss._ado_auth_helper._HELPER_PATH",
+            mock.MagicMock(is_file=mock.MagicMock(return_value=False)),
+        ):
+            # Should not raise regardless of tenant value
+            assert provider.get_token("") is None
+            assert provider.get_token("any-tenant") is None
