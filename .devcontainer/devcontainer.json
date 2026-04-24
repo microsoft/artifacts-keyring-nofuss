@@ -1,9 +1,7 @@
 {
   "image": "mcr.microsoft.com/devcontainers/python:3.12",
   "features": {
-    "ghcr.io/microsoft/codespace-features/artifacts-helper:3": {
-      "python": false
-    }
+    "ghcr.io/microsoft/codespace-features/artifacts-helper:3": {}
   },
   "postCreateCommand": "pip install -e '.[dev]'",
   "containerEnv": {
