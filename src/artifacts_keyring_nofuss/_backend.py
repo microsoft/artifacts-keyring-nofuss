@@ -193,7 +193,11 @@ def _discover(service: str) -> tuple[str, str] | None:
     try:
         resp = requests.get(clean_url, allow_redirects=False, timeout=10)
     except requests.RequestException:
-        log.debug("discovery request failed for %s", clean_url, exc_info=True)
+        log.debug(
+            "discovery request failed for %s (network error or timeout)",
+            clean_url,
+            exc_info=True,
+        )
         return None
 
     www_auth = resp.headers.get("WWW-Authenticate", "")
@@ -281,7 +285,13 @@ class ArtifactsKeyringBackend(keyring.backend.KeyringBackend):
         # Discover tenant + authority
         info = _discover(service)
         if info is None:
-            log.warning("could not discover tenant for %s", service)
+            log.warning(
+                "could not discover Azure AD tenant for %s "
+                "(is this an Azure DevOps Artifacts URL?). "
+                "Check network/VPN connectivity. "
+                "Set ARTIFACTS_KEYRING_NOFUSS_DEBUG=1 for details.",
+                _strip_userinfo(service),
+            )
             return None
         tenant_id, vsts_authority = info
 
@@ -295,9 +305,13 @@ class ArtifactsKeyringBackend(keyring.backend.KeyringBackend):
         result = _provider.run_chain(chain, tenant_id)
         if result is None:
             log.warning(
-                "all auth providers failed for %s — are you logged in? "
-                "Try: az login --tenant %s",
-                service,
+                "all auth providers failed for %s "
+                "(tried: %s). "
+                "For local dev, try: az login --tenant %s  "
+                "For CI, set ARTIFACTS_KEYRING_NOFUSS_TOKEN. "
+                "Set ARTIFACTS_KEYRING_NOFUSS_DEBUG=1 for details.",
+                _strip_userinfo(service),
+                ", ".join(p.__class__.__name__ for p in chain),
                 tenant_id,
             )
             return None
@@ -311,7 +325,7 @@ class ArtifactsKeyringBackend(keyring.backend.KeyringBackend):
             if account:
                 log.debug(
                     "authenticated to %s as %s (service principal)",
-                    service,
+                    _strip_userinfo(service),
                     account,
                 )
             cred = keyring.credentials.SimpleCredential("bearer", bearer)
@@ -322,16 +336,26 @@ class ArtifactsKeyringBackend(keyring.backend.KeyringBackend):
             if session_tok is None:
                 if account:
                     log.warning(
-                        "session token exchange failed for %s (authenticated as %s)",
-                        service,
+                        "session token exchange failed for %s (authenticated as %s). "
+                        "Check that the account has Packaging Read permissions. "
+                        "Set ARTIFACTS_KEYRING_NOFUSS_DEBUG=1 for details.",
+                        _strip_userinfo(service),
                         account,
                     )
                 else:
-                    log.warning("session token exchange failed for %s", service)
+                    log.warning(
+                        "session token exchange failed for %s. "
+                        "Set ARTIFACTS_KEYRING_NOFUSS_DEBUG=1 for details.",
+                        _strip_userinfo(service),
+                    )
                 return None
 
             if account:
-                log.debug("authenticated to %s as %s", service, account)
+                log.debug(
+                    "authenticated to %s as %s",
+                    _strip_userinfo(service),
+                    account,
+                )
             cred = keyring.credentials.SimpleCredential("VssSessionToken", session_tok)
         self._cache[service] = (cred, time.monotonic())
         return cred
