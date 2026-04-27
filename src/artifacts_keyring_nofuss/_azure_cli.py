@@ -4,18 +4,21 @@ from __future__ import annotations
 
 import json
 import logging
+import shutil
 import subprocess
 
 from . import _constants as C
 
 log = logging.getLogger(__name__)
 
+_AZ_EXE: str = shutil.which("az") or "az"
+
 
 def _current_account() -> str | None:
     """Return the UPN or app ID of the currently logged-in az CLI account."""
     try:
         result = subprocess.run(
-            ["az", "account", "show", "--query", "user.name", "--output", "tsv"],
+            [_AZ_EXE, "account", "show", "--query", "user.name", "--output", "tsv"],
             capture_output=True,
             text=True,
             timeout=10,
@@ -35,7 +38,7 @@ class AzureCliProvider:
         try:
             result = subprocess.run(
                 [
-                    "az",
+                    _AZ_EXE,
                     "account",
                     "get-access-token",
                     "--resource",
