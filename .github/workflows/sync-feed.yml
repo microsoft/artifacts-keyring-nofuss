@@ -52,7 +52,7 @@ jobs:
           pip download \
             --index-url "$INDEX" \
             --dest /tmp/sync --no-deps \
-            keyring artifacts-keyring-nofuss
+            keyring artifacts-keyring-nofuss pypi-lockdown
 
           # Platform-specific wheels for each OS × Python version
           for platform in \
@@ -67,7 +67,7 @@ jobs:
                 --platform "$platform" \
                 --python-version "$pyver" \
                 --only-binary :all: \
-                uv keyring artifacts-keyring-nofuss 2>&1; then
+                uv keyring artifacts-keyring-nofuss pypi-lockdown 2>&1; then
                 echo "::warning::Failed to sync for $platform / cp$pyver"
                 FAILURES=$((FAILURES + 1))
               fi
