@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import logging
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable, Iterator
 
 log = logging.getLogger(__name__)
 
@@ -22,8 +25,15 @@ class TokenProvider(Protocol):
         ...
 
 
-def run_chain(providers: list[TokenProvider], tenant_id: str) -> str | None:
-    """Try each provider in order; return the first successful bearer token."""
+def iter_tokens(
+    providers: Iterable[TokenProvider], tenant_id: str
+) -> Iterator[tuple[TokenProvider, str]]:
+    """Yield ``(provider, bearer_token)`` for each provider that succeeds.
+
+    Failures and ``None`` returns are logged and skipped automatically.
+    Callers can iterate and decide whether to consume the next token
+    (e.g. after a session-token exchange rejection).
+    """
     for provider in providers:
         log.debug("trying provider: %s", provider.name)
         try:
@@ -33,5 +43,9 @@ def run_chain(providers: list[TokenProvider], tenant_id: str) -> str | None:
             continue
         if token is not None:
             log.debug("provider %s succeeded", provider.name)
-            return token
-    return None
+            yield provider, token
+
+
+def run_chain(providers: Iterable[TokenProvider], tenant_id: str) -> str | None:
+    """Try each provider in order; return the first successful bearer token."""
+    return next((token for _, token in iter_tokens(providers, tenant_id)), None)
