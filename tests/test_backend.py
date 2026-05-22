@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import json
 import subprocess
+from typing import Any
 from unittest import mock
 
 import pytest
@@ -54,10 +55,10 @@ class _FakeProvider:
 
 _FAKE = _FakeProvider()
 
+_SideEffect = Any  # side_effect callable type
 
-def _iter_returning(
-    *tokens: str, provider: _FakeProvider | None = None
-) -> mock.MagicMock:
+
+def _iter_returning(*tokens: str, provider: _FakeProvider | None = None) -> _SideEffect:
     """Return a side_effect callable that yields (provider, token) tuples.
 
     Each call to the mock returns a fresh iterator so it can be called
@@ -65,6 +66,7 @@ def _iter_returning(
     """
     prov = provider or _FAKE
     return lambda *_a, **_kw: iter([(prov, t) for t in tokens])
+
 
 # ---------------------------------------------------------------------------
 # _ensure_scheme
