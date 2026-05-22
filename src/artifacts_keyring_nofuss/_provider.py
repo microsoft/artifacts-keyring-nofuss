@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import logging
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 log = logging.getLogger(__name__)
 
@@ -22,8 +25,10 @@ class TokenProvider(Protocol):
         ...
 
 
-def run_chain(providers: list[TokenProvider], tenant_id: str) -> str | None:
-    """Try each provider in order; return the first successful bearer token."""
+def iter_chain(
+    providers: list[TokenProvider], tenant_id: str
+) -> Iterator[tuple[TokenProvider, str]]:
+    """Yield successful ``(provider, token)`` pairs from the provider chain."""
     for provider in providers:
         log.debug("trying provider: %s", provider.name)
         try:
@@ -33,5 +38,11 @@ def run_chain(providers: list[TokenProvider], tenant_id: str) -> str | None:
             continue
         if token is not None:
             log.debug("provider %s succeeded", provider.name)
-            return token
+            yield provider, token
+
+
+def run_chain(providers: list[TokenProvider], tenant_id: str) -> str | None:
+    """Try each provider in order; return the first successful bearer token."""
+    for _, token in iter_chain(providers, tenant_id):
+        return token
     return None

@@ -352,15 +352,15 @@ class TestAccountFromToken:
 class TestCacheTTL:
     @mock.patch("artifacts_keyring_nofuss._backend._session_token.exchange")
     @mock.patch("artifacts_keyring_nofuss._backend._discover")
-    @mock.patch("artifacts_keyring_nofuss._backend._provider.run_chain")
+    @mock.patch("artifacts_keyring_nofuss._backend.EnvVarProvider.get_token")
     def test_cache_expires(
         self,
-        mock_chain: mock.MagicMock,
+        mock_get_token: mock.MagicMock,
         mock_discover: mock.MagicMock,
         mock_exchange: mock.MagicMock,
     ) -> None:
         mock_discover.return_value = ("tenant", "https://app.vssps.visualstudio.com")
-        mock_chain.return_value = USER_JWT
+        mock_get_token.return_value = USER_JWT
         mock_exchange.return_value = "session-token"
 
         backend = ArtifactsKeyringBackend()
@@ -373,23 +373,23 @@ class TestCacheTTL:
             # First call populates cache
             cred1 = backend.get_credential(url, None)
             assert cred1 is not None
-            assert mock_chain.call_count == 1
+            assert mock_get_token.call_count == 1
             assert mock_exchange.call_count == 1
 
             # Second call uses cache (no new chain run and no new exchange)
             cred2 = backend.get_credential(url, None)
             assert cred2 is cred1
-            assert mock_chain.call_count == 1
+            assert mock_get_token.call_count == 1
             assert mock_exchange.call_count == 1
 
             # Advance time past TTL (50 min = 3000s)
             now = 4100.0
-            mock_chain.return_value = USER_JWT
+            mock_get_token.return_value = USER_JWT
             mock_exchange.return_value = "new-session-token"
             cred3 = backend.get_credential(url, None)
             assert cred3 is not None
             assert cred3.password == "new-session-token"
-            assert mock_chain.call_count == 2
+            assert mock_get_token.call_count == 2
             assert mock_exchange.call_count == 2
 
 
@@ -403,15 +403,15 @@ class TestSessionTokenDefault:
 
     @mock.patch("artifacts_keyring_nofuss._backend._session_token.exchange")
     @mock.patch("artifacts_keyring_nofuss._backend._discover")
-    @mock.patch("artifacts_keyring_nofuss._backend._provider.run_chain")
+    @mock.patch("artifacts_keyring_nofuss._backend.EnvVarProvider.get_token")
     def test_returns_session_token(
         self,
-        mock_chain: mock.MagicMock,
+        mock_get_token: mock.MagicMock,
         mock_discover: mock.MagicMock,
         mock_exchange: mock.MagicMock,
     ) -> None:
         mock_discover.return_value = ("tenant", "https://app.vssps.visualstudio.com")
-        mock_chain.return_value = USER_JWT
+        mock_get_token.return_value = USER_JWT
         mock_exchange.return_value = "my-session-token"
 
         backend = ArtifactsKeyringBackend()
@@ -427,15 +427,15 @@ class TestSessionTokenDefault:
 
     @mock.patch("artifacts_keyring_nofuss._backend._session_token.exchange")
     @mock.patch("artifacts_keyring_nofuss._backend._discover")
-    @mock.patch("artifacts_keyring_nofuss._backend._provider.run_chain")
+    @mock.patch("artifacts_keyring_nofuss._backend.EnvVarProvider.get_token")
     def test_get_password_returns_session_token(
         self,
-        mock_chain: mock.MagicMock,
+        mock_get_token: mock.MagicMock,
         mock_discover: mock.MagicMock,
         mock_exchange: mock.MagicMock,
     ) -> None:
         mock_discover.return_value = ("tenant", "https://app.vssps.visualstudio.com")
-        mock_chain.return_value = USER_JWT
+        mock_get_token.return_value = USER_JWT
         mock_exchange.return_value = "my-session-token"
 
         backend = ArtifactsKeyringBackend()
@@ -446,15 +446,15 @@ class TestSessionTokenDefault:
 
     @mock.patch("artifacts_keyring_nofuss._backend._session_token.exchange")
     @mock.patch("artifacts_keyring_nofuss._backend._discover")
-    @mock.patch("artifacts_keyring_nofuss._backend._provider.run_chain")
+    @mock.patch("artifacts_keyring_nofuss._backend.EnvVarProvider.get_token")
     def test_subdomain_feed_url_works(
         self,
-        mock_chain: mock.MagicMock,
+        mock_get_token: mock.MagicMock,
         mock_discover: mock.MagicMock,
         mock_exchange: mock.MagicMock,
     ) -> None:
         mock_discover.return_value = ("tenant", "https://app.vssps.visualstudio.com")
-        mock_chain.return_value = USER_JWT
+        mock_get_token.return_value = USER_JWT
         mock_exchange.return_value = "session-token-123"
 
         backend = ArtifactsKeyringBackend()
@@ -468,15 +468,15 @@ class TestSessionTokenDefault:
 
     @mock.patch("artifacts_keyring_nofuss._backend._session_token.exchange")
     @mock.patch("artifacts_keyring_nofuss._backend._discover")
-    @mock.patch("artifacts_keyring_nofuss._backend._provider.run_chain")
+    @mock.patch("artifacts_keyring_nofuss._backend.EnvVarProvider.get_token")
     def test_returns_none_when_exchange_fails(
         self,
-        mock_chain: mock.MagicMock,
+        mock_get_token: mock.MagicMock,
         mock_discover: mock.MagicMock,
         mock_exchange: mock.MagicMock,
     ) -> None:
         mock_discover.return_value = ("tenant", "https://app.vssps.visualstudio.com")
-        mock_chain.return_value = USER_JWT
+        mock_get_token.return_value = USER_JWT
         mock_exchange.return_value = None
 
         backend = ArtifactsKeyringBackend()
@@ -531,15 +531,15 @@ class TestServicePrincipalTokens:
 
     @mock.patch("artifacts_keyring_nofuss._backend._session_token.exchange")
     @mock.patch("artifacts_keyring_nofuss._backend._discover")
-    @mock.patch("artifacts_keyring_nofuss._backend._provider.run_chain")
+    @mock.patch("artifacts_keyring_nofuss._backend.EnvVarProvider.get_token")
     def test_sp_token_skips_session_exchange(
         self,
-        mock_chain: mock.MagicMock,
+        mock_get_token: mock.MagicMock,
         mock_discover: mock.MagicMock,
         mock_exchange: mock.MagicMock,
     ) -> None:
         mock_discover.return_value = ("tenant", "https://app.vssps.visualstudio.com")
-        mock_chain.return_value = SP_JWT
+        mock_get_token.return_value = SP_JWT
 
         backend = ArtifactsKeyringBackend()
         url = "https://pkgs.dev.azure.com/org/proj/_packaging/feed/pypi/simple/"
@@ -553,15 +553,15 @@ class TestServicePrincipalTokens:
 
     @mock.patch("artifacts_keyring_nofuss._backend._session_token.exchange")
     @mock.patch("artifacts_keyring_nofuss._backend._discover")
-    @mock.patch("artifacts_keyring_nofuss._backend._provider.run_chain")
+    @mock.patch("artifacts_keyring_nofuss._backend.EnvVarProvider.get_token")
     def test_user_token_does_session_exchange(
         self,
-        mock_chain: mock.MagicMock,
+        mock_get_token: mock.MagicMock,
         mock_discover: mock.MagicMock,
         mock_exchange: mock.MagicMock,
     ) -> None:
         mock_discover.return_value = ("tenant", "https://app.vssps.visualstudio.com")
-        mock_chain.return_value = USER_JWT
+        mock_get_token.return_value = USER_JWT
         mock_exchange.return_value = "session-token"
 
         backend = ArtifactsKeyringBackend()
@@ -577,15 +577,15 @@ class TestServicePrincipalTokens:
 
     @mock.patch("artifacts_keyring_nofuss._backend._session_token.exchange")
     @mock.patch("artifacts_keyring_nofuss._backend._discover")
-    @mock.patch("artifacts_keyring_nofuss._backend._provider.run_chain")
+    @mock.patch("artifacts_keyring_nofuss._backend.EnvVarProvider.get_token")
     def test_sp_token_get_password(
         self,
-        mock_chain: mock.MagicMock,
+        mock_get_token: mock.MagicMock,
         mock_discover: mock.MagicMock,
         mock_exchange: mock.MagicMock,
     ) -> None:
         mock_discover.return_value = ("tenant", "https://app.vssps.visualstudio.com")
-        mock_chain.return_value = SP_JWT
+        mock_get_token.return_value = SP_JWT
 
         backend = ArtifactsKeyringBackend()
         url = "https://pkgs.dev.azure.com/org/proj/_packaging/feed/pypi/simple/"

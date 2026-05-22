@@ -312,17 +312,7 @@ class ArtifactsKeyringBackend(keyring.backend.KeyringBackend):
 
         # Try each provider; on 401 from session token exchange, continue to
         # the next provider (the rejected bearer may be stale/cached).
-        for provider in chain:
-            log.debug("trying provider: %s", provider.name)
-            try:
-                bearer = provider.get_token(tenant_id)
-            except Exception:
-                log.debug("provider %s failed", provider.name, exc_info=True)
-                continue
-            if bearer is None:
-                continue
-            log.debug("provider %s succeeded", provider.name)
-
+        for provider, bearer in _provider.iter_chain(chain, tenant_id):
             account = _account_from_token(bearer)
 
             if _is_service_principal_token(bearer):
@@ -342,7 +332,7 @@ class ArtifactsKeyringBackend(keyring.backend.KeyringBackend):
             except TokenRejectedError:
                 log.warning(
                     "session token exchange returned 401 for provider %s "
-                    "(authenticated as %s) — trying next provider.",
+                    "(authenticated as %s) — will try the next provider if available.",
                     provider.name,
                     account or "unknown",
                 )
