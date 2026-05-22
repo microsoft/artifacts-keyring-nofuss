@@ -20,6 +20,7 @@ from ._ado_auth_helper import AdoAuthHelperProvider
 from ._azure_cli import AzureCliProvider
 from ._azure_identity import AzureIdentityProvider
 from ._env_var import EnvVarProvider
+from ._session_token import TokenRejectedError
 from ._workload_identity import WorkloadIdentityProvider
 
 log = logging.getLogger(__name__)
@@ -309,43 +310,49 @@ class ArtifactsKeyringBackend(keyring.backend.KeyringBackend):
         else:
             chain = [PROVIDERS[name]() for name in DEFAULT_CHAIN]
 
-        # Get bearer token
-        result = _provider.run_chain(chain, tenant_id)
-        if result is None:
-            log.warning(
-                "all auth providers failed for %s "
-                "(tried: %s). "
-                "For local dev, try: az login --tenant %s  "
-                "For CI, set ARTIFACTS_KEYRING_NOFUSS_TOKEN. "
-                "Set ARTIFACTS_KEYRING_NOFUSS_DEBUG=1 for details.",
-                _strip_userinfo(service),
-                ", ".join(p.__class__.__name__ for p in chain),
-                tenant_id,
-            )
-            return None
+        # Try each provider; on 401 from session token exchange, continue to
+        # the next provider (the rejected bearer may be stale/cached).
+        for provider in chain:
+            log.debug("trying provider: %s", provider.name)
+            try:
+                bearer = provider.get_token(tenant_id)
+            except Exception:
+                log.debug("provider %s failed", provider.name, exc_info=True)
+                continue
+            if bearer is None:
+                continue
+            log.debug("provider %s succeeded", provider.name)
 
-        bearer = result
-        account = _account_from_token(bearer)
+            account = _account_from_token(bearer)
 
-        if _is_service_principal_token(bearer):
-            # MI / SP / WIF tokens cannot be exchanged for a VssSessionToken.
-            # Return the Entra bearer token directly as Basic auth password.
-            if account:
-                log.debug(
-                    "authenticated to %s as %s (service principal)",
-                    _strip_userinfo(service),
-                    account,
+            if _is_service_principal_token(bearer):
+                if account:
+                    log.debug(
+                        "authenticated to %s as %s (service principal)",
+                        _strip_userinfo(service),
+                        account,
+                    )
+                cred = keyring.credentials.SimpleCredential("bearer", bearer)
+                self._cache[service] = (cred, time.monotonic())
+                return cred
+
+            # User tokens are exchanged for a VssSessionToken.
+            try:
+                session_tok = _session_token.exchange(bearer, vsts_authority)
+            except TokenRejectedError:
+                log.warning(
+                    "session token exchange returned 401 for provider %s "
+                    "(authenticated as %s) — trying next provider.",
+                    provider.name,
+                    account or "unknown",
                 )
-            cred = keyring.credentials.SimpleCredential("bearer", bearer)
-        else:
-            # User tokens (e.g. Azure CLI) are exchanged for a narrower
-            # VssSessionToken scoped to vso.packaging.
-            session_tok = _session_token.exchange(bearer, vsts_authority)
+                continue
+
             if session_tok is None:
+                # Non-401 exchange failure (network, 5xx, etc.) — not retryable.
                 if account:
                     log.warning(
                         "session token exchange failed for %s (authenticated as %s). "
-                        "Check that the account has Packaging Read permissions. "
                         "Set ARTIFACTS_KEYRING_NOFUSS_DEBUG=1 for details.",
                         _strip_userinfo(service),
                         account,
@@ -365,8 +372,21 @@ class ArtifactsKeyringBackend(keyring.backend.KeyringBackend):
                     account,
                 )
             cred = keyring.credentials.SimpleCredential("VssSessionToken", session_tok)
-        self._cache[service] = (cred, time.monotonic())
-        return cred
+            self._cache[service] = (cred, time.monotonic())
+            return cred
+
+        # All providers exhausted
+        log.warning(
+            "all auth providers failed for %s "
+            "(tried: %s). "
+            "For local dev, try: az login --tenant %s  "
+            "For CI, set ARTIFACTS_KEYRING_NOFUSS_TOKEN. "
+            "Set ARTIFACTS_KEYRING_NOFUSS_DEBUG=1 for details.",
+            _strip_userinfo(service),
+            ", ".join(p.__class__.__name__ for p in chain),
+            tenant_id,
+        )
+        return None
 
     def get_password(self, service: str, username: str | None) -> str | None:
         cred = self.get_credential(service, username)

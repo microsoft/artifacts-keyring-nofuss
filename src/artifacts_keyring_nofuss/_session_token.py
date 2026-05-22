@@ -10,6 +10,10 @@ import requests
 log = logging.getLogger(__name__)
 
 
+class TokenRejectedError(Exception):
+    """Raised when the session token exchange returns 401 (bearer was rejected)."""
+
+
 def exchange(bearer_token: str, vsts_authority: str) -> str | None:
     """Exchange *bearer_token* for a session token scoped to ``vso.packaging``.
 
@@ -47,18 +51,18 @@ def exchange(bearer_token: str, vsts_authority: str) -> str | None:
         with contextlib.suppress(Exception):
             detail = resp.json().get("message", "")
         if resp.status_code == 401:
-            log.warning(
+            log.debug(
                 "session token exchange returned 401 — bearer token was "
                 "rejected by Azure DevOps. %s",
                 detail,
             )
-        else:
-            log.debug(
-                "session token exchange failed (HTTP %s): %s",
-                resp.status_code,
-                detail,
-                exc_info=True,
-            )
+            raise TokenRejectedError(detail) from None
+        log.debug(
+            "session token exchange failed (HTTP %s): %s",
+            resp.status_code,
+            detail,
+            exc_info=True,
+        )
         return None
     except requests.RequestException:
         log.debug("session token exchange failed", exc_info=True)
