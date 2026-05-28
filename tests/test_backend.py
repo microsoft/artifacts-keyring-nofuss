@@ -816,7 +816,7 @@ class TestEnvVarProvider:
         secret_path.write_text("buildkit-secret-token")
         provider = EnvVarProvider()
         with (
-            mock.patch.dict("os.environ", {ENV_VAR: "env-token"}),
+            mock.patch.dict("os.environ", {ENV_VAR: "env-token"}, clear=True),
             mock.patch(
                 "artifacts_keyring_nofuss._env_var._BUILDKIT_SECRET_PATHS",
                 (secret_path,),
