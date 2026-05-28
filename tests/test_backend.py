@@ -5,8 +5,11 @@ from __future__ import annotations
 import base64
 import json
 import subprocess
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from unittest import mock
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 import pytest
 import requests
@@ -24,7 +27,12 @@ from artifacts_keyring_nofuss._backend import (
     _validate_auth_uri,
     _validate_vsts_authority,
 )
-from artifacts_keyring_nofuss._env_var import ENV_VAR, FALLBACK_ENV_VAR, EnvVarProvider
+from artifacts_keyring_nofuss._env_var import (
+    ENV_VAR,
+    ENV_VAR_FILE,
+    FALLBACK_ENV_VAR,
+    EnvVarProvider,
+)
 from artifacts_keyring_nofuss._session_token import TokenRejectedError
 from artifacts_keyring_nofuss._workload_identity import WorkloadIdentityProvider
 
@@ -754,6 +762,67 @@ class TestEnvVarProvider:
             {ENV_VAR: "primary-token", FALLBACK_ENV_VAR: "fallback-token"},
         ):
             assert provider.get_token("any-tenant") == "primary-token"
+
+    def test_reads_token_from_file_env_var(self, tmp_path: Path) -> None:
+        token_file = tmp_path / "token"
+        token_file.write_text("file-token\n")
+        provider = EnvVarProvider()
+        with mock.patch.dict("os.environ", {ENV_VAR_FILE: str(token_file)}, clear=True):
+            assert provider.get_token("any-tenant") == "file-token"
+
+    def test_file_env_var_takes_precedence_over_env_var(self, tmp_path: Path) -> None:
+        token_file = tmp_path / "token"
+        token_file.write_text("file-token")
+        provider = EnvVarProvider()
+        with mock.patch.dict(
+            "os.environ", {ENV_VAR_FILE: str(token_file), ENV_VAR: "env-token"}
+        ):
+            assert provider.get_token("any-tenant") == "file-token"
+
+    def test_file_env_var_falls_through_when_file_missing(self) -> None:
+        provider = EnvVarProvider()
+        with mock.patch.dict(
+            "os.environ",
+            {ENV_VAR_FILE: "/nonexistent/path", ENV_VAR: "fallback"},
+        ):
+            assert provider.get_token("any-tenant") == "fallback"
+
+    def test_file_env_var_falls_through_when_file_empty(self, tmp_path: Path) -> None:
+        token_file = tmp_path / "token"
+        token_file.write_text("   \n")
+        provider = EnvVarProvider()
+        with mock.patch.dict(
+            "os.environ", {ENV_VAR_FILE: str(token_file), ENV_VAR: "env-token"}
+        ):
+            assert provider.get_token("any-tenant") == "env-token"
+
+    def test_buildkit_secret_path_auto_detected(self, tmp_path: Path) -> None:
+        secret_path = tmp_path / "ARTIFACTS_KEYRING_NOFUSS_TOKEN"
+        secret_path.write_text("buildkit-secret-token")
+        provider = EnvVarProvider()
+        with (
+            mock.patch.dict("os.environ", {}, clear=True),
+            mock.patch(
+                "artifacts_keyring_nofuss._env_var._BUILDKIT_SECRET_PATHS",
+                (secret_path,),
+            ),
+        ):
+            assert provider.get_token("any-tenant") == "buildkit-secret-token"
+
+    def test_env_var_takes_precedence_over_buildkit_secret(
+        self, tmp_path: Path
+    ) -> None:
+        secret_path = tmp_path / "ARTIFACTS_KEYRING_NOFUSS_TOKEN"
+        secret_path.write_text("buildkit-secret-token")
+        provider = EnvVarProvider()
+        with (
+            mock.patch.dict("os.environ", {ENV_VAR: "env-token"}, clear=True),
+            mock.patch(
+                "artifacts_keyring_nofuss._env_var._BUILDKIT_SECRET_PATHS",
+                (secret_path,),
+            ),
+        ):
+            assert provider.get_token("any-tenant") == "env-token"
 
 
 class TestEnvVarProviderIntegration:
