@@ -45,6 +45,15 @@ DEFAULT_CHAIN = [
 ]
 
 
+def _is_jwt(token: str) -> bool:
+    """Return True if *token* looks like a JWT (three dot-separated segments)."""
+    parts = token.split(".")
+    if len(parts) != 3:
+        return False
+    # Each segment must be non-empty
+    return all(parts)
+
+
 def _decode_jwt_claims(bearer: str) -> dict[str, str]:
     """Decode the payload of a JWT without validation. Returns {} on failure."""
     try:
@@ -312,8 +321,27 @@ class ArtifactsKeyringBackend(keyring.backend.KeyringBackend):
 
         # Try each provider; on 401 from session token exchange, continue to
         # the next provider (the rejected bearer may be stale/cached).
+        # Track the last rejected bearer so we can fall back to using it
+        # directly if all providers are exhausted (handles $(System.AccessToken)
+        # and similar system-issued JWTs that have feed access but can't be
+        # exchanged for a VssSessionToken).
+        last_rejected_bearer: str | None = None
+
         for provider, bearer in _provider.iter_tokens(chain, tenant_id):
             account = _account_from_token(bearer)
+
+            # Non-JWT tokens (PATs, pre-exchanged session tokens) cannot be
+            # exchanged — use them directly as Basic auth credentials.
+            if not _is_jwt(bearer):
+                log.debug(
+                    "token from %s is not a JWT (PAT or session token), "
+                    "using directly for %s",
+                    provider.name,
+                    _strip_userinfo(service),
+                )
+                cred = keyring.credentials.SimpleCredential("", bearer)
+                self._cache[service] = (cred, time.monotonic())
+                return cred
 
             if _is_service_principal_token(bearer):
                 if account:
@@ -330,13 +358,14 @@ class ArtifactsKeyringBackend(keyring.backend.KeyringBackend):
             try:
                 session_tok = _session_token.exchange(bearer, vsts_authority)
             except TokenRejectedError:
-                log.warning(
+                log.debug(
                     "session token exchange returned 401 for provider %s "
                     "(authenticated as %s); "
-                    "bearer token rejected, trying another provider if available.",
+                    "bearer token rejected, trying next provider.",
                     provider.name,
                     account or "unknown",
                 )
+                last_rejected_bearer = bearer
                 continue
 
             if session_tok is None:
@@ -366,7 +395,21 @@ class ArtifactsKeyringBackend(keyring.backend.KeyringBackend):
             self._cache[service] = (cred, time.monotonic())
             return cred
 
-        # All providers exhausted
+        # All providers exhausted — fall back to using the last rejected bearer
+        # directly. This handles system-issued JWTs like $(System.AccessToken)
+        # that have feed permissions but can't be exchanged.
+        if last_rejected_bearer is not None:
+            account = _account_from_token(last_rejected_bearer)
+            log.debug(
+                "exchange failed for all providers; falling back to bearer "
+                "token directly for %s (authenticated as %s)",
+                _strip_userinfo(service),
+                account or "unknown",
+            )
+            cred = keyring.credentials.SimpleCredential("bearer", last_rejected_bearer)
+            self._cache[service] = (cred, time.monotonic())
+            return cred
+
         log.warning(
             "all auth providers failed for %s "
             "(tried: %s). "
