@@ -50,7 +50,7 @@ def _is_jwt(token: str) -> bool:
     parts = token.split(".")
     if len(parts) != 3:
         return False
-    # Each segment must be non-empty base64url
+    # Each segment must be non-empty
     return all(parts)
 
 

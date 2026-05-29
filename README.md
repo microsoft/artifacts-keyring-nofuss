@@ -28,10 +28,10 @@ Artifacts feed, this backend:
    URL and parsing the `WWW-Authenticate` header.
 2. **Obtains a token** using one of the supported auth flows (see below).
 3. **Auto-detects the token type** and handles it appropriately:
-   - **Non-JWT tokens** (PATs, `$(System.AccessToken)`): used directly — no exchange needed.
+   - **Non-JWT tokens** (PATs, pre-exchanged session tokens): used directly — no exchange needed.
    - **User tokens** (Azure CLI): exchanged for a narrower `VssSessionToken` scoped to `vso.packaging`.
    - **Service principal tokens** (managed identity, SP, WIF): returned directly as bearer credentials.
-   - **System tokens that fail exchange** (e.g. build service JWTs): gracefully fall back to direct use.
+   - **System JWTs that fail exchange** (e.g. `$(System.AccessToken)`): gracefully fall back to direct use.
 4. **Returns** the credentials to the caller.
 
 ## Auth flows (priority order)
