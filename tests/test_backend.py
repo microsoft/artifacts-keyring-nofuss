@@ -21,6 +21,7 @@ from artifacts_keyring_nofuss._backend import (
     _discover,
     _ensure_scheme,
     _hostname_matches,
+    _is_jwt,
     _is_service_principal_token,
     _is_supported,
     _strip_userinfo,
@@ -562,13 +563,13 @@ class TestTokenRejectedRetry:
     @mock.patch("artifacts_keyring_nofuss._backend._session_token.exchange")
     @mock.patch("artifacts_keyring_nofuss._backend._discover")
     @mock.patch("artifacts_keyring_nofuss._backend._provider.iter_tokens")
-    def test_returns_none_when_all_rejected(
+    def test_falls_back_to_bearer_when_all_rejected(
         self,
         mock_iter: mock.MagicMock,
         mock_discover: mock.MagicMock,
         mock_exchange: mock.MagicMock,
     ) -> None:
-        """All providers' tokens are rejected — returns None."""
+        """All providers' tokens are rejected — falls back to using bearer directly."""
         mock_discover.return_value = ("tenant", "https://app.vssps.visualstudio.com")
         mock_iter.side_effect = _iter_returning(USER_JWT)
         mock_exchange.side_effect = TokenRejectedError("rejected")
@@ -577,7 +578,10 @@ class TestTokenRejectedRetry:
         url = "https://pkgs.dev.azure.com/org/proj/_packaging/feed/pypi/simple/"
         cred = backend.get_credential(url, None)
 
-        assert cred is None
+        # Falls back to using the bearer token directly
+        assert cred is not None
+        assert cred.username == "bearer"
+        assert cred.password == USER_JWT
 
 
 class TestDiscoverWithUserinfo:
@@ -723,6 +727,119 @@ class TestIsServicePrincipalToken:
 
 
 # ---------------------------------------------------------------------------
+# _is_jwt
+# ---------------------------------------------------------------------------
+
+
+class TestIsJwt:
+    def test_valid_jwt_structure(self) -> None:
+        assert _is_jwt(USER_JWT) is True
+        assert _is_jwt(SP_JWT) is True
+
+    def test_opaque_pat_is_not_jwt(self) -> None:
+        assert _is_jwt("my-ado-pat-token") is False
+
+    def test_two_segments_is_not_jwt(self) -> None:
+        assert _is_jwt("header.payload") is False
+
+    def test_four_segments_is_not_jwt(self) -> None:
+        assert _is_jwt("a.b.c.d") is False
+
+    def test_empty_segment_is_not_jwt(self) -> None:
+        assert _is_jwt("header..signature") is False
+
+    def test_empty_string_is_not_jwt(self) -> None:
+        assert _is_jwt("") is False
+
+
+# ---------------------------------------------------------------------------
+# Non-JWT token passthrough and exchange fallback
+# ---------------------------------------------------------------------------
+
+
+class TestNonJwtPassthrough:
+    """Non-JWT tokens (PATs, session tokens) are returned directly."""
+
+    @mock.patch("artifacts_keyring_nofuss._backend._session_token.exchange")
+    @mock.patch("artifacts_keyring_nofuss._backend._discover")
+    @mock.patch("artifacts_keyring_nofuss._backend._provider.iter_tokens")
+    def test_pat_skips_exchange(
+        self,
+        mock_iter: mock.MagicMock,
+        mock_discover: mock.MagicMock,
+        mock_exchange: mock.MagicMock,
+    ) -> None:
+        pat = "opaque-pat-string-no-dots"
+        mock_discover.return_value = ("tenant", "https://app.vssps.visualstudio.com")
+        mock_iter.side_effect = _iter_returning(pat)
+
+        backend = ArtifactsKeyringBackend()
+        url = "https://pkgs.dev.azure.com/org/proj/_packaging/feed/pypi/simple/"
+        cred = backend.get_credential(url, None)
+
+        assert cred is not None
+        assert cred.username == ""
+        assert cred.password == pat
+        mock_exchange.assert_not_called()
+
+
+class TestExchangeFallback:
+    """JWT tokens that fail exchange fall back to direct bearer use."""
+
+    @mock.patch("artifacts_keyring_nofuss._backend._session_token.exchange")
+    @mock.patch("artifacts_keyring_nofuss._backend._discover")
+    @mock.patch("artifacts_keyring_nofuss._backend._provider.iter_tokens")
+    def test_system_token_exchange_rejected_falls_back_to_bearer(
+        self,
+        mock_iter: mock.MagicMock,
+        mock_discover: mock.MagicMock,
+        mock_exchange: mock.MagicMock,
+    ) -> None:
+        """Simulates $(System.AccessToken): JWT with scp, exchange fails."""
+        system_jwt = _make_jwt({"scp": "vso.packaging", "oid": "build-svc"})
+        mock_discover.return_value = ("tenant", "https://app.vssps.visualstudio.com")
+        mock_iter.side_effect = _iter_returning(system_jwt)
+        mock_exchange.side_effect = TokenRejectedError("rejected")
+
+        backend = ArtifactsKeyringBackend()
+        url = "https://pkgs.dev.azure.com/org/proj/_packaging/feed/pypi/simple/"
+        cred = backend.get_credential(url, None)
+
+        assert cred is not None
+        assert cred.username == "bearer"
+        assert cred.password == system_jwt
+
+    @mock.patch("artifacts_keyring_nofuss._backend._session_token.exchange")
+    @mock.patch("artifacts_keyring_nofuss._backend._discover")
+    @mock.patch("artifacts_keyring_nofuss._backend._provider.iter_tokens")
+    def test_fallback_uses_last_rejected_bearer(
+        self,
+        mock_iter: mock.MagicMock,
+        mock_discover: mock.MagicMock,
+        mock_exchange: mock.MagicMock,
+    ) -> None:
+        """Multiple providers rejected — fallback uses the last one."""
+        token_a = _make_jwt({"upn": "a@example.com", "idtyp": "user"})
+        token_b = _make_jwt({"scp": "vso.packaging", "oid": "build-svc"})
+        prov_a = _FakeProvider("provider_a")
+        prov_b = _FakeProvider("provider_b")
+
+        mock_discover.return_value = ("tenant", "https://app.vssps.visualstudio.com")
+        mock_iter.side_effect = lambda *_a, **_kw: iter(
+            [(prov_a, token_a), (prov_b, token_b)]
+        )
+        mock_exchange.side_effect = TokenRejectedError("rejected")
+
+        backend = ArtifactsKeyringBackend()
+        url = "https://pkgs.dev.azure.com/org/proj/_packaging/feed/pypi/simple/"
+        cred = backend.get_credential(url, None)
+
+        assert cred is not None
+        assert cred.username == "bearer"
+        assert cred.password == token_b  # last rejected
+
+
+# ---------------------------------------------------------------------------
 # EnvVarProvider
 # ---------------------------------------------------------------------------
 
@@ -830,7 +947,7 @@ class TestEnvVarProviderIntegration:
 
     @mock.patch("artifacts_keyring_nofuss._backend._session_token.exchange")
     @mock.patch("artifacts_keyring_nofuss._backend._discover")
-    def test_env_var_token_used_for_exchange(
+    def test_env_var_jwt_token_used_for_exchange(
         self,
         mock_discover: mock.MagicMock,
         mock_exchange: mock.MagicMock,
@@ -838,18 +955,42 @@ class TestEnvVarProviderIntegration:
         mock_discover.return_value = ("tenant", "https://app.vssps.visualstudio.com")
         mock_exchange.return_value = "my-session-token"
 
+        # Use a real JWT so it goes through the exchange path
+        env_jwt = _make_jwt({"upn": "ci@example.com", "idtyp": "user"})
+
         backend = ArtifactsKeyringBackend()
         url = "https://pkgs.dev.azure.com/org/proj/_packaging/feed/pypi/simple/"
 
-        with mock.patch.dict("os.environ", {ENV_VAR: "env-bearer-token"}):
+        with mock.patch.dict("os.environ", {ENV_VAR: env_jwt}):
             cred = backend.get_credential(url, None)
 
         assert cred is not None
         assert cred.username == "VssSessionToken"
         assert cred.password == "my-session-token"
         mock_exchange.assert_called_once_with(
-            "env-bearer-token", "https://app.vssps.visualstudio.com"
+            env_jwt, "https://app.vssps.visualstudio.com"
         )
+
+    @mock.patch("artifacts_keyring_nofuss._backend._session_token.exchange")
+    @mock.patch("artifacts_keyring_nofuss._backend._discover")
+    def test_env_var_non_jwt_token_used_directly(
+        self,
+        mock_discover: mock.MagicMock,
+        mock_exchange: mock.MagicMock,
+    ) -> None:
+        """Non-JWT tokens (PATs) skip exchange and are returned directly."""
+        mock_discover.return_value = ("tenant", "https://app.vssps.visualstudio.com")
+
+        backend = ArtifactsKeyringBackend()
+        url = "https://pkgs.dev.azure.com/org/proj/_packaging/feed/pypi/simple/"
+
+        with mock.patch.dict("os.environ", {ENV_VAR: "my-ado-pat-token"}):
+            cred = backend.get_credential(url, None)
+
+        assert cred is not None
+        assert cred.username == ""
+        assert cred.password == "my-ado-pat-token"
+        mock_exchange.assert_not_called()
 
 
 # ---------------------------------------------------------------------------

@@ -26,18 +26,19 @@ Artifacts feed, this backend:
 
 1. **Discovers** the Azure AD tenant by making an unauthenticated request to the feed
    URL and parsing the `WWW-Authenticate` header.
-2. **Obtains a bearer token** using one of the supported auth flows (see below).
-3. For **user tokens** (Azure CLI): **exchanges** the bearer token for a narrower
-   `VssSessionToken` scoped to `vso.packaging`.
-4. For **service principal tokens** (managed identity, SP, WIF): returns the Entra
-   bearer token directly as Basic auth credentials.
-5. **Returns** the credentials to the caller.
+2. **Obtains a token** using one of the supported auth flows (see below).
+3. **Auto-detects the token type** and handles it appropriately:
+   - **Non-JWT tokens** (PATs, `$(System.AccessToken)`): used directly — no exchange needed.
+   - **User tokens** (Azure CLI): exchanged for a narrower `VssSessionToken` scoped to `vso.packaging`.
+   - **Service principal tokens** (managed identity, SP, WIF): returned directly as bearer credentials.
+   - **System tokens that fail exchange** (e.g. build service JWTs): gracefully fall back to direct use.
+4. **Returns** the credentials to the caller.
 
 ## Auth flows (priority order)
 
 | # | Flow | How it works |
 |---|------|-------------|
-| 1 | **Environment variable** | Reads a bearer token from `ARTIFACTS_KEYRING_NOFUSS_TOKEN` (or `VSS_NUGET_ACCESSTOKEN` as fallback). Also supports `ARTIFACTS_KEYRING_NOFUSS_TOKEN_FILE` pointing to a file, and auto-detects Docker BuildKit secrets at `/run/secrets/`. Best for CI and Docker builds. |
+| 1 | **Environment variable** | Reads a token from `ARTIFACTS_KEYRING_NOFUSS_TOKEN` (or `VSS_NUGET_ACCESSTOKEN` as fallback). Accepts any token type: bearer, PAT, or `$(System.AccessToken)`. Also supports `ARTIFACTS_KEYRING_NOFUSS_TOKEN_FILE` pointing to a file, and auto-detects Docker BuildKit secrets at `/run/secrets/`. Best for CI and Docker builds. |
 | 2 | **Azure CLI** | Runs `az account get-access-token`. Most common for local dev. |
 | 3 | **ADO auth helper** | Calls `~/ado-auth-helper` (created by the `ado-codespaces-auth` VS Code extension). Enables seamless auth in GitHub Codespaces. |
 | 4 | **Workload Identity** | Exchanges a federated token via `AZURE_CLIENT_ID` + `AZURE_FEDERATED_TOKEN_FILE` + `AZURE_TENANT_ID`. Best for GitHub Actions with `azure/login@v2`. |
@@ -84,12 +85,14 @@ export AZURE_CLIENT_SECRET=your-secret
 This requires the `azure-identity` package (included as a dependency). The service principal must have
 permissions on the Azure DevOps feed (e.g. Feed Reader).
 
-### Bearer token via environment variable
+### Token via environment variable
 
-For CI pipelines and Docker builds, pass a pre-minted bearer token:
+For CI pipelines and Docker builds, pass any valid ADO token — bearer token,
+PAT, or `$(System.AccessToken)`. The backend auto-detects the token type and
+does the right thing (exchange for session token, or use directly):
 
 ```bash
-export ARTIFACTS_KEYRING_NOFUSS_TOKEN=<bearer-token>
+export ARTIFACTS_KEYRING_NOFUSS_TOKEN=<token>
 ```
 
 For backward compatibility with existing `artifacts-keyring` CI configs,
@@ -97,7 +100,7 @@ For backward compatibility with existing `artifacts-keyring` CI configs,
 
 #### Reading tokens from files (`_FILE` convention)
 
-Set `ARTIFACTS_KEYRING_NOFUSS_TOKEN_FILE` to a path containing the bearer token.
+Set `ARTIFACTS_KEYRING_NOFUSS_TOKEN_FILE` to a path containing the token.
 This follows the Docker `_FILE` convention used by official images (postgres, mysql, etc.):
 
 ```bash
@@ -130,9 +133,12 @@ RUN --mount=type=secret,id=ARTIFACTS_KEYRING_NOFUSS_TOKEN \
 Build with:
 
 ```bash
-# Mint a short-lived ADO bearer token and pass it as a BuildKit secret
+# Local dev: mint a bearer token from Azure CLI
 export ADO_TOKEN=$(az account get-access-token \
   --resource 499b84ac-1321-427f-aa17-267ca6975798 --query accessToken -o tsv)
+
+# ADO pipeline: use $(System.AccessToken) directly
+# GitHub Actions: use token from azure/login step
 
 DOCKER_BUILDKIT=1 docker buildx build \
   --secret id=ARTIFACTS_KEYRING_NOFUSS_TOKEN,env=ADO_TOKEN \
