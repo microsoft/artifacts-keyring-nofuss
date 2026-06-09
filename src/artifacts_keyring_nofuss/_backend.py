@@ -119,6 +119,24 @@ def _parse_hostname(service: str) -> str:
         return ""
 
 
+def _org_portal_url(service: str) -> str | None:
+    """Derive the Azure DevOps organization portal URL from a feed *service* URL.
+
+    For ``https://pkgs.dev.azure.com/{org}/...`` → ``https://dev.azure.com/{org}``
+    For ``https://{org}.pkgs.visualstudio.com/...`` → ``https://{org}.visualstudio.com``
+    """
+    parsed = urllib.parse.urlparse(_ensure_scheme(service))
+    hostname = (parsed.hostname or "").lower()
+    path_parts = [p for p in parsed.path.split("/") if p]
+
+    if hostname == "pkgs.dev.azure.com" and path_parts:
+        return f"https://dev.azure.com/{path_parts[0]}"
+    if hostname.endswith(".pkgs.visualstudio.com"):
+        org = hostname.removesuffix(".pkgs.visualstudio.com")
+        return f"https://{org}.visualstudio.com"
+    return None
+
+
 def _hostname_matches(hostname: str) -> bool:
     """Return True if *hostname* matches a known Azure DevOps Artifacts netloc.
 
@@ -329,14 +347,39 @@ class ArtifactsKeyringBackend(keyring.backend.KeyringBackend):
             # User tokens are exchanged for a VssSessionToken.
             try:
                 session_tok = _session_token.exchange(bearer, vsts_authority)
-            except TokenRejectedError:
-                log.warning(
-                    "session token exchange returned 401 for provider %s "
-                    "(authenticated as %s); "
-                    "bearer token rejected, trying another provider if available.",
-                    provider.name,
-                    account or "unknown",
-                )
+            except TokenRejectedError as exc:
+                detail = str(exc)
+                if "TF401444" in detail:
+                    org_url = _org_portal_url(service)
+                    account_hint = f" as {account}" if account else ""
+                    if org_url:
+                        log.warning(
+                            "Azure DevOps requires a first-time browser "
+                            "sign-in before token access is allowed.\n"
+                            "  → Open %s in a browser and sign "
+                            "in%s\n"
+                            "  Then retry your command.",
+                            org_url,
+                            account_hint,
+                        )
+                    else:
+                        log.warning(
+                            "Azure DevOps requires a first-time browser "
+                            "sign-in before token access is allowed.\n"
+                            "  → Sign in%s at the Azure DevOps "
+                            "organization that owns this feed.\n"
+                            "  Then retry your command.",
+                            account_hint,
+                        )
+                else:
+                    log.warning(
+                        "session token exchange returned 401 for provider %s "
+                        "(authenticated as %s); "
+                        "bearer token rejected, trying another provider if "
+                        "available.",
+                        provider.name,
+                        account or "unknown",
+                    )
                 continue
 
             if session_tok is None:
