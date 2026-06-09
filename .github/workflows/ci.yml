@@ -64,10 +64,12 @@ jobs:
           python-version: "3.12"
 
       - name: Install package and audit tool
-        run: pip install -e . pip-audit
+        run: |
+          pip install --upgrade pip
+          pip install -e . pip-audit
 
       - name: Audit dependencies for known vulnerabilities
-        run: pip-audit --exclude pip
+        run: pip-audit --skip-editable
 
   zizmor:
     runs-on: ubuntu-latest
