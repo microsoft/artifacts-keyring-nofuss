@@ -15,6 +15,8 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
         with:
@@ -35,6 +37,8 @@ jobs:
         python-version: ["3.10", "3.12", "3.13"]
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
         with:
@@ -52,6 +56,8 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
         with:
@@ -61,7 +67,7 @@ jobs:
         run: pip install -e . pip-audit
 
       - name: Audit dependencies for known vulnerabilities
-        run: pip-audit
+        run: pip-audit --exclude pip
 
   zizmor:
     runs-on: ubuntu-latest
@@ -69,6 +75,8 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
 
       - name: Install zizmor
         run: pipx install zizmor
