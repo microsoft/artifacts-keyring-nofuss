@@ -37,7 +37,7 @@ Artifacts feed, this backend:
 
 | # | Flow | How it works |
 |---|------|-------------|
-| 1 | **Environment variable** | Reads a bearer token from `ARTIFACTS_KEYRING_NOFUSS_TOKEN` (or `VSS_NUGET_ACCESSTOKEN` as fallback). Best for CI and Docker builds. |
+| 1 | **Environment variable** | Reads a bearer token from `ARTIFACTS_KEYRING_NOFUSS_TOKEN` (or `VSS_NUGET_ACCESSTOKEN` as fallback). Also supports `ARTIFACTS_KEYRING_NOFUSS_TOKEN_FILE` pointing to a file, and auto-detects Docker BuildKit secrets at `/run/secrets/`. Best for CI and Docker builds. |
 | 2 | **Azure CLI** | Runs `az account get-access-token`. Most common for local dev. |
 | 3 | **ADO auth helper** | Calls `~/ado-auth-helper` (created by the `ado-codespaces-auth` VS Code extension). Enables seamless auth in GitHub Codespaces. |
 | 4 | **Workload Identity** | Exchanges a federated token via `AZURE_CLIENT_ID` + `AZURE_FEDERATED_TOKEN_FILE` + `AZURE_TENANT_ID`. Best for GitHub Actions with `azure/login@v2`. |
@@ -94,6 +94,56 @@ export ARTIFACTS_KEYRING_NOFUSS_TOKEN=<bearer-token>
 
 For backward compatibility with existing `artifacts-keyring` CI configs,
 `VSS_NUGET_ACCESSTOKEN` is also accepted as a fallback.
+
+#### Reading tokens from files (`_FILE` convention)
+
+Set `ARTIFACTS_KEYRING_NOFUSS_TOKEN_FILE` to a path containing the bearer token.
+This follows the Docker `_FILE` convention used by official images (postgres, mysql, etc.):
+
+```bash
+export ARTIFACTS_KEYRING_NOFUSS_TOKEN_FILE=/run/secrets/my_token
+```
+
+#### Docker BuildKit secrets (zero config)
+
+When building Docker images with BuildKit, secrets are mounted as files under
+`/run/secrets/` only for the duration of the build step — they are never persisted
+in image layers.
+
+The env_var provider automatically checks these well-known BuildKit secret paths:
+
+- `/run/secrets/ARTIFACTS_KEYRING_NOFUSS_TOKEN`
+- `/run/secrets/ado_token`
+
+This means you can use BuildKit secrets with **no extra env vars inside the container**:
+
+```dockerfile
+# Dockerfile
+RUN pip install artifacts-keyring-nofuss
+
+RUN --mount=type=secret,id=ARTIFACTS_KEYRING_NOFUSS_TOKEN \
+    PIP_KEYRING_PROVIDER=import pip install \
+    --index-url https://__token__@pkgs.dev.azure.com/{org}/_packaging/{feed}/pypi/simple/ \
+    my-private-package
+```
+
+Build with:
+
+```bash
+# Mint a short-lived ADO bearer token and pass it as a BuildKit secret
+export ADO_TOKEN=$(az account get-access-token \
+  --resource 499b84ac-1321-427f-aa17-267ca6975798 --query accessToken -o tsv)
+
+DOCKER_BUILDKIT=1 docker buildx build \
+  --secret id=ARTIFACTS_KEYRING_NOFUSS_TOKEN,env=ADO_TOKEN \
+  -t my-image .
+```
+
+The token is available at `/run/secrets/ARTIFACTS_KEYRING_NOFUSS_TOKEN` only during
+that `RUN` step and is never baked into the image.
+
+**Priority order**: `ARTIFACTS_KEYRING_NOFUSS_TOKEN_FILE` → `ARTIFACTS_KEYRING_NOFUSS_TOKEN` →
+`VSS_NUGET_ACCESSTOKEN` → BuildKit secret paths.
 
 ### Workload Identity Federation (GitHub Actions OIDC)
 
