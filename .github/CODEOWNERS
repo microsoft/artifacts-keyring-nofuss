@@ -1,0 +1,13 @@
+# Security-sensitive paths require review from the core infra team.
+# See: https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+# Default: require review for everything
+* @microsoft/ai4s-coreinfra-fte
+
+# Workflows and CI config (highest-risk supply chain surface)
+.github/ @microsoft/ai4s-coreinfra-fte
+pyproject.toml @microsoft/ai4s-coreinfra-fte
+.pre-commit-config.yaml @microsoft/ai4s-coreinfra-fte
+
+# Source code
+src/ @microsoft/ai4s-coreinfra-fte
