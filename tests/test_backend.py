@@ -23,6 +23,7 @@ from artifacts_keyring_nofuss._backend import (
     _hostname_matches,
     _is_service_principal_token,
     _is_supported,
+    _org_portal_url,
     _strip_userinfo,
     _validate_auth_uri,
     _validate_vsts_authority,
@@ -123,6 +124,27 @@ class TestStripUserinfo:
         assert (
             result == "https://myorg.pkgs.visualstudio.com/_packaging/feed/pypi/simple/"
         )
+
+
+# ---------------------------------------------------------------------------
+# _org_portal_url
+# ---------------------------------------------------------------------------
+
+
+class TestOrgPortalUrl:
+    def test_pkgs_dev_azure_com(self) -> None:
+        url = "https://pkgs.dev.azure.com/my-org/_packaging/feed/pypi/simple/"
+        assert _org_portal_url(url) == "https://dev.azure.com/my-org"
+
+    def test_pkgs_visualstudio_com(self) -> None:
+        url = "https://myorg.pkgs.visualstudio.com/_packaging/feed/pypi/simple/"
+        assert _org_portal_url(url) == "https://myorg.visualstudio.com"
+
+    def test_unknown_host_returns_none(self) -> None:
+        assert _org_portal_url("https://example.com/something") is None
+
+    def test_pkgs_dev_azure_com_no_path(self) -> None:
+        assert _org_portal_url("https://pkgs.dev.azure.com/") is None
 
 
 # ---------------------------------------------------------------------------
@@ -579,8 +601,43 @@ class TestTokenRejectedRetry:
 
         assert cred is None
 
+    @mock.patch("artifacts_keyring_nofuss._backend._session_token.exchange")
+    @mock.patch("artifacts_keyring_nofuss._backend._discover")
+    @mock.patch("artifacts_keyring_nofuss._backend._provider.iter_tokens")
+    @mock.patch("artifacts_keyring_nofuss._backend.log")
+    def test_tf401444_warning_contains_org_portal_url(
+        self,
+        mock_log: mock.MagicMock,
+        mock_iter: mock.MagicMock,
+        mock_discover: mock.MagicMock,
+        mock_exchange: mock.MagicMock,
+    ) -> None:
+        """TF401444 rejection produces a warning with the org portal URL."""
+        mock_discover.return_value = ("tenant", "https://app.vssps.visualstudio.com")
+        mock_iter.side_effect = _iter_returning(USER_JWT)
+        mock_exchange.side_effect = TokenRejectedError(
+            "TF401444: Please sign-in at least once as "
+            "72f988bf-86f1-41af-91ab-2d7cd011db47\\user@example.com "
+            "in a web browser to enable access to the service."
+        )
 
-class TestDiscoverWithUserinfo:
+        backend = ArtifactsKeyringBackend()
+        url = "https://pkgs.dev.azure.com/my-org/_packaging/feed/pypi/simple/"
+
+        cred = backend.get_credential(url, None)
+
+        assert cred is None
+        # Find the TF401444-specific warning call
+        warning_calls = [
+            call
+            for call in mock_log.warning.call_args_list
+            if "first-time browser sign-in" in str(call)
+        ]
+        assert len(warning_calls) == 1
+        msg = warning_calls[0].args[0] % warning_calls[0].args[1:]
+        assert "https://dev.azure.com/my-org" in msg
+        assert "user@example.com" in msg
+
     """Ensure discovery strips userinfo before making the GET request."""
 
     def _mock_response(

@@ -350,15 +350,27 @@ class ArtifactsKeyringBackend(keyring.backend.KeyringBackend):
             except TokenRejectedError as exc:
                 detail = str(exc)
                 if "TF401444" in detail:
-                    org_url = _org_portal_url(service) or _strip_userinfo(service)
-                    log.warning(
-                        "Azure DevOps requires a first-time browser sign-in "
-                        "before token access is allowed.\n"
-                        "  → Open %s in a browser and sign in as %s\n"
-                        "  Then retry your command.",
-                        org_url,
-                        account or "(the account shown in the error)",
-                    )
+                    org_url = _org_portal_url(service)
+                    account_hint = f" as {account}" if account else ""
+                    if org_url:
+                        log.warning(
+                            "Azure DevOps requires a first-time browser "
+                            "sign-in before token access is allowed.\n"
+                            "  → Open %s in a browser and sign "
+                            "in%s\n"
+                            "  Then retry your command.",
+                            org_url,
+                            account_hint,
+                        )
+                    else:
+                        log.warning(
+                            "Azure DevOps requires a first-time browser "
+                            "sign-in before token access is allowed.\n"
+                            "  → Sign in%s at the Azure DevOps "
+                            "organization that owns this feed.\n"
+                            "  Then retry your command.",
+                            account_hint,
+                        )
                 else:
                     log.warning(
                         "session token exchange returned 401 for provider %s "
