@@ -41,7 +41,7 @@ hash-verified, pinned dependencies:
 
 ```bash
 # Extract the lockfile from the attested package on PyPI
-pip download --no-deps artifacts-keyring-nofuss -d /tmp/aknf
+pip download --no-deps --only-binary=:all: artifacts-keyring-nofuss -d /tmp/aknf
 unzip -p /tmp/aknf/artifacts_keyring_nofuss-*.whl \
     artifacts_keyring_nofuss/requirements-lock.txt > /tmp/requirements-lock.txt
 
