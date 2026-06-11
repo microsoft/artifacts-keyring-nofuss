@@ -2,6 +2,12 @@
 
 [![CI](https://github.com/microsoft/artifacts-keyring-nofuss/actions/workflows/ci.yml/badge.svg)](https://github.com/microsoft/artifacts-keyring-nofuss/actions/workflows/ci.yml)
 
+> **⚠️ This is not an officially endorsed Microsoft package.** Unlike
+> [`artifacts-keyring`](https://pypi.org/project/artifacts-keyring/), this
+> project is an independent, best-effort alternative focused on convenience
+> (more auth auto-detection, reuse of existing `az` CLI logins) and
+> debuggability (pure Python — no opaque .NET binary). Use at your own risk.
+
 Minimal, pure-Python keyring backend for Azure DevOps Artifacts feeds.
 
 Replaces the official `artifacts-keyring` (which wraps a ~100 MB .NET binary) with a
@@ -9,14 +15,53 @@ no-fuss, pure-Python implementation — no .NET required.
 
 ## Install
 
+### Recommended: standalone tool
+
+```bash
+uv tool install keyring --with artifacts-keyring-nofuss
+```
+
+Or with pipx:
+
+```bash
+pipx install keyring
+pipx inject keyring artifacts-keyring-nofuss
+```
+
+Both install the package in an isolated environment. The `keyring` CLI is
+placed on your PATH and works automatically with both pip
+(`--keyring-provider=subprocess`) and uv (`keyring-provider = "subprocess"`).
+
+#### Verified installs (pinned + hash-checked)
+
+The package ships a `requirements-lock.txt` with SHA-256 hashes for all
+runtime dependencies — covered by the package's own
+[PyPI attestation](https://docs.pypi.org/attestations/). To install with
+hash-verified, pinned dependencies:
+
+```bash
+# Extract the lockfile from the attested package on PyPI
+pip download --no-deps --only-binary=:all: artifacts-keyring-nofuss -d /tmp/aknf
+unzip -p /tmp/aknf/artifacts_keyring_nofuss-*.whl \
+    artifacts_keyring_nofuss/requirements-lock.txt > /tmp/requirements-lock.txt
+
+# Install with pinned + hash-checked deps
+uv tool install keyring --with artifacts-keyring-nofuss \
+    --with-requirements /tmp/requirements-lock.txt
+```
+
+The lockfile is maintained by Dependabot and regenerated on each release.
+
+### Into project environment (no isolation)
+
 ```bash
 pip install artifacts-keyring-nofuss
 ```
 
-Or for development:
+### For development
 
 ```bash
-pip install -e .
+pip install -e ".[dev]"
 ```
 
 ## How it works
@@ -173,19 +218,28 @@ VS Code status bar on first use.
 
 ## Usage with pip
 
+When installed as a standalone tool (recommended), configure pip to use the
+subprocess keyring provider:
+
 ```bash
-pip install --index-url https://pkgs.dev.azure.com/{org}/_packaging/{feed}/pypi/simple/ my-package
+# Global config (recommended — add to ~/.config/pip/pip.conf):
+# [global]
+# keyring-provider = subprocess
+
+# Or per-command:
+pip install --keyring-provider=subprocess \
+    --index-url https://pkgs.dev.azure.com/{org}/_packaging/{feed}/pypi/simple/ \
+    my-package
 ```
 
-The keyring backend is automatically discovered by pip. No extra flags needed.
+When installed in the same environment as pip, no extra flags are needed — the
+backend is discovered automatically via entry points.
 
 ## Usage with uv
 
-1. Install keyring with this backend:
+1. Install as a standalone tool (if not done already):
 
 ```bash
-pip install keyring artifacts-keyring-nofuss
-# or
 uv tool install keyring --with artifacts-keyring-nofuss
 ```
 
