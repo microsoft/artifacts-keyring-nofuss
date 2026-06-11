@@ -66,14 +66,14 @@ class AzureCliProvider:
             account = _current_account()
             stderr = result.stderr.strip()
             if account:
-                log.warning(
+                log.debug(
                     "az CLI auth failed for account %r (tenant %s): %s",
                     account,
                     tenant_id,
                     stderr,
                 )
             else:
-                log.warning("az CLI auth failed (not logged in?): %s", stderr)
+                log.debug("az CLI auth failed (not logged in?): %s", stderr)
             return None
 
         try:
