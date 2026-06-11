@@ -2,6 +2,12 @@
 
 [![CI](https://github.com/microsoft/artifacts-keyring-nofuss/actions/workflows/ci.yml/badge.svg)](https://github.com/microsoft/artifacts-keyring-nofuss/actions/workflows/ci.yml)
 
+> **⚠️ This is not an officially endorsed Microsoft package.** Unlike
+> [`artifacts-keyring`](https://pypi.org/project/artifacts-keyring/), this
+> project is an independent, best-effort alternative focused on convenience
+> (more auth auto-detection, reuse of existing `az` CLI logins) and
+> debuggability (pure Python — no opaque .NET binary). Use at your own risk.
+
 Minimal, pure-Python keyring backend for Azure DevOps Artifacts feeds.
 
 Replaces the official `artifacts-keyring` (which wraps a ~100 MB .NET binary) with a
