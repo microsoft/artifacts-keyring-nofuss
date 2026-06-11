@@ -20,6 +20,10 @@ def _configure_logging() -> None:
         pkg_logger.setLevel(logging.DEBUG)
     else:
         pkg_logger.setLevel(logging.WARNING)
+        # Suppress verbose azure-identity/azure-core SDK logging that leaks
+        # through the root logger (request URLs, headers, token lifecycle).
+        logging.getLogger("azure.identity").setLevel(logging.WARNING)
+        logging.getLogger("azure.core").setLevel(logging.WARNING)
     pkg_logger.addHandler(handler)
     pkg_logger.propagate = False
 
