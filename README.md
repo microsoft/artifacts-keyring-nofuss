@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/microsoft/artifacts-keyring-nofuss/actions/workflows/ci.yml/badge.svg)](https://github.com/microsoft/artifacts-keyring-nofuss/actions/workflows/ci.yml)
 
-> **⚠️ This is an unsupported Microsoft utility.** Unlike
+> **⚠️ This is an unsupported Microsoft sample.** Unlike
 > [`artifacts-keyring`](https://pypi.org/project/artifacts-keyring/), this
 > project is a best-effort alternative focused on convenience
 > (more auth auto-detection, reuse of existing `az` CLI logins) and
