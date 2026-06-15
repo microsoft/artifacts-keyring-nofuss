@@ -14,3 +14,4 @@ venv/
 *.log
 src/artifacts_keyring_nofuss/_version.py
 copilot-session-*.md
+uv.lock

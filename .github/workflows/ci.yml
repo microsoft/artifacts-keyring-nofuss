@@ -71,6 +71,9 @@ jobs:
       - name: Audit dependencies for known vulnerabilities
         run: pip-audit --skip-editable
 
+      - name: Audit shipped lockfile for known vulnerabilities
+        run: pip-audit -r src/artifacts_keyring_nofuss/requirements-lock.txt
+
   zizmor:
     runs-on: ubuntu-latest
     permissions:
