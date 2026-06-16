@@ -6,7 +6,6 @@ import base64
 import configparser
 import json
 import logging
-import time
 import urllib.parse
 from pathlib import Path
 
@@ -24,9 +23,6 @@ from ._session_token import TokenRejectedError
 from ._workload_identity import WorkloadIdentityProvider
 
 log = logging.getLogger(__name__)
-
-# Cached credentials expire after 50 minutes (tokens typically live 60-75 min)
-_CACHE_TTL_SECONDS = 50 * 60
 
 PROVIDERS: dict[str, type[_provider.TokenProvider]] = {
     "env_var": EnvVarProvider,
@@ -285,7 +281,6 @@ class ArtifactsKeyringBackend(keyring.backend.KeyringBackend):
 
     def __init__(self) -> None:
         super().__init__()  # type: ignore[no-untyped-call]
-        self._cache: dict[str, tuple[keyring.credentials.SimpleCredential, float]] = {}
 
     def get_credential(  # noqa: PLR0911, PLR0912, C901
         self,
@@ -301,13 +296,6 @@ class ArtifactsKeyringBackend(keyring.backend.KeyringBackend):
         if chosen and chosen not in PROVIDERS:
             log.warning("unknown provider %r, valid: %s", chosen, ", ".join(PROVIDERS))
             return None
-
-        cached = self._cache.get(service)
-        if cached is not None:
-            cred, ts = cached
-            if time.monotonic() - ts < _CACHE_TTL_SECONDS:
-                return cred
-            del self._cache[service]
 
         # Discover tenant + authority
         info = _discover(service)
@@ -340,9 +328,7 @@ class ArtifactsKeyringBackend(keyring.backend.KeyringBackend):
                         _strip_userinfo(service),
                         account,
                     )
-                cred = keyring.credentials.SimpleCredential("bearer", bearer)
-                self._cache[service] = (cred, time.monotonic())
-                return cred
+                return keyring.credentials.SimpleCredential("bearer", bearer)
 
             # User tokens are exchanged for a VssSessionToken.
             try:
@@ -405,9 +391,7 @@ class ArtifactsKeyringBackend(keyring.backend.KeyringBackend):
                     _strip_userinfo(service),
                     account,
                 )
-            cred = keyring.credentials.SimpleCredential("VssSessionToken", session_tok)
-            self._cache[service] = (cred, time.monotonic())
-            return cred
+            return keyring.credentials.SimpleCredential("VssSessionToken", session_tok)
 
         # All providers exhausted
         log.warning(
