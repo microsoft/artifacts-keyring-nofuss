@@ -281,6 +281,69 @@ name = "my-feed"
 ```
 
 
+## Usage with pre-commit
+
+You can route pre-commit's Python package installations through an Azure
+DevOps Artifact feed (e.g. for supply-chain compliance or network policy).
+Hook repositories are still cloned from GitHub via git (pinned by commit
+SHA); only the pip install step goes through your feed.
+
+### Prerequisites
+
+1. Install keyring as a standalone tool (if not done already):
+
+```bash
+uv tool install keyring --with artifacts-keyring-nofuss
+```
+
+2. Configure pip to use keyring and your feed. Either in
+   `~/.config/pip/pip.conf`:
+
+```ini
+[global]
+index-url = https://__token__@pkgs.dev.azure.com/{org}/_packaging/{feed}/pypi/simple/
+keyring-provider = subprocess
+```
+
+Or as environment variables:
+
+```bash
+export PIP_INDEX_URL="https://__token__@pkgs.dev.azure.com/{org}/_packaging/{feed}/pypi/simple/"
+export PIP_KEYRING_PROVIDER=subprocess
+```
+
+> **Note:** Your ADO feed must have an upstream source pointing to
+> `https://pypi.org/simple/` so that public packages (ruff, mypy, etc.)
+> are available.
+
+### Hook configuration
+
+Use standard pre-commit repos pinned by commit SHA. Pre-commit clones
+from GitHub as usual, then installs the hook's Python dependencies via pip
+— which authenticates through keyring to your ADO feed:
+
+```yaml
+# .pre-commit-config.yaml
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: 4924b0e01e032fea073ad04a1c5cfa7e4add0afb  # v0.15.6
+    hooks:
+      - id: ruff
+        args: [--fix, --exit-non-zero-on-fix]
+      - id: ruff-format
+```
+
+All `language: python` hooks install their packages from the configured
+pip index (your ADO feed). `pre-commit autoupdate` and Dependabot
+continue to work normally for the git rev pins.
+
+### Limitations
+
+- Only `language: python` hooks route through the feed. Hooks using
+  `language: node`, `language: rust`, etc. use their own package managers.
+- The git clone step still goes directly to GitHub — only pip-installed
+  dependencies are controlled by the feed.
+
 ## Supported feed URLs
 
 Any URL whose host matches one of (including subdomain-prefixed variants):
