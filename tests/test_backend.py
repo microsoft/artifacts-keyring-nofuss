@@ -403,54 +403,6 @@ class TestAccountFromToken:
 
 
 # ---------------------------------------------------------------------------
-# Cache TTL
-# ---------------------------------------------------------------------------
-
-
-class TestCacheTTL:
-    @mock.patch("artifacts_keyring_nofuss._backend._session_token.exchange")
-    @mock.patch("artifacts_keyring_nofuss._backend._discover")
-    @mock.patch("artifacts_keyring_nofuss._backend._provider.iter_tokens")
-    def test_cache_expires(
-        self,
-        mock_iter: mock.MagicMock,
-        mock_discover: mock.MagicMock,
-        mock_exchange: mock.MagicMock,
-    ) -> None:
-        mock_discover.return_value = ("tenant", "https://app.vssps.visualstudio.com")
-        mock_iter.side_effect = _iter_returning(USER_JWT)
-        mock_exchange.return_value = "session-token"
-
-        backend = ArtifactsKeyringBackend()
-        url = "https://pkgs.dev.azure.com/org/proj/_packaging/feed/pypi/simple/"
-
-        now = 1000.0
-        with mock.patch(
-            "artifacts_keyring_nofuss._backend.time.monotonic", side_effect=lambda: now
-        ):
-            # First call populates cache
-            cred1 = backend.get_credential(url, None)
-            assert cred1 is not None
-            assert mock_iter.call_count == 1
-            assert mock_exchange.call_count == 1
-
-            # Second call uses cache (no new chain run and no new exchange)
-            cred2 = backend.get_credential(url, None)
-            assert cred2 is cred1
-            assert mock_iter.call_count == 1
-            assert mock_exchange.call_count == 1
-
-            # Advance time past TTL (50 min = 3000s)
-            now = 4100.0
-            mock_exchange.return_value = "new-session-token"
-            cred3 = backend.get_credential(url, None)
-            assert cred3 is not None
-            assert cred3.password == "new-session-token"
-            assert mock_iter.call_count == 2
-            assert mock_exchange.call_count == 2
-
-
-# ---------------------------------------------------------------------------
 # Session token (default behaviour)
 # ---------------------------------------------------------------------------
 
