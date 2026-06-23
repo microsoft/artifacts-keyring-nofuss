@@ -280,6 +280,47 @@ url = "https://__token__@pkgs.dev.azure.com/{org}/_packaging/{feed}/pypi/simple/
 name = "my-feed"
 ```
 
+## Usage with pixi
+
+pixi embeds uv as its PyPI resolver, so the keyring integration works the same
+way. Install the backend alongside keyring and enable the subprocess provider:
+
+```bash
+uv tool install keyring --with artifacts-keyring-nofuss
+```
+
+```toml
+# pixi.toml or pyproject.toml
+[pypi-options]
+keyring-provider = "subprocess"
+```
+
+Then configure the feed as a PyPI **index** (not as a credentialed direct URL)
+and depend on packages by name. The `__token__@` username triggers the keyring
+lookup, exactly as with uv:
+
+```toml
+[pypi-options]
+# Use index-url if the feed has PyPI configured as an upstream source;
+# otherwise use extra-index-urls to keep the public PyPI index as well.
+index-url = "https://__token__@pkgs.dev.azure.com/{org}/_packaging/{feed}/pypi/simple/"
+
+[pypi-dependencies]
+my-package = "==1.2.3"
+```
+
+**Do not pin private packages by a credentialed direct URL** (e.g.
+`my-package = { url = "https://__token__@.../my_package-1.2.3-py3-none-any.whl" }`).
+pixi redacts the credentials to `****` when it writes `pixi.lock`, but the
+manifest keeps the literal `__token__`. `pixi install --locked` then compares the
+two, sees `****` ≠ `__token__`, and fails with a direct-URL mismatch. Index URLs
+are stored verbatim in the lock file, so they round-trip correctly and keep
+`--locked` working.
+
+If you are stuck with a credentialed direct URL, `pixi install --frozen`
+installs from the lock file as-is and skips the manifest/lock comparison
+(authentication still succeeds because the backend ignores the username). Note
+that `--frozen` disables all lock-file drift detection, not just this check.
 
 ## Supported feed URLs
 
