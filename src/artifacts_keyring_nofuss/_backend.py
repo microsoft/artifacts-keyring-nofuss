@@ -14,7 +14,7 @@ import keyring.credentials
 import requests
 
 from . import _constants as C
-from . import _provider, _session_token
+from . import _http, _provider, _session_token
 from ._ado_auth_helper import AdoAuthHelperProvider
 from ._azure_cli import AzureCliProvider
 from ._azure_identity import AzureIdentityProvider
@@ -214,7 +214,7 @@ def _discover(service: str) -> tuple[str, str] | None:
     # Strip userinfo (e.g. __token__@) so the request is truly unauthenticated
     clean_url = _strip_userinfo(service)
     try:
-        resp = requests.get(clean_url, allow_redirects=False, timeout=10)
+        resp = _http.request("GET", clean_url, allow_redirects=False, timeout=10)
     except requests.RequestException:
         log.debug(
             "discovery request failed for %s (network error or timeout)",

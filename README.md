@@ -303,6 +303,22 @@ ARTIFACTS_KEYRING_NOFUSS_DEBUG=1 pip install --index-url https://pkgs.dev.azure.
 
 This prints the provider chain, token exchange steps, and any errors to stderr.
 
+### Transient network failures / flaky CI
+
+Outbound calls to Azure DevOps (tenant discovery and the session-token exchange)
+are automatically retried with exponential backoff when they hit a transient
+failure — a dropped connection, timeout, or a `429`/`5xx` response. This smooths
+over the occasional blip that previously surfaced as a spurious `401`/"could not
+find a version" error that only a re-run would fix.
+
+The retry budget defaults to **3 attempts** per request. Override it with:
+
+```bash
+export ARTIFACTS_KEYRING_NOFUSS_RETRIES=5  # total attempts per request (1–10)
+```
+
+Set it to `1` to disable retries entirely.
+
 ## Security model
 
 This package handles authentication tokens. Key security properties:
