@@ -55,6 +55,8 @@ def _build_retry(attempts: int) -> Retry:
     retries = max(_MIN_ATTEMPTS, min(_MAX_ATTEMPTS, attempts)) - 1
     return Retry(
         total=retries,
+        # Keep connect/read retries in the manual loop so we can explicitly avoid
+        # retrying SSLError while still using urllib3 Retry for status retries.
         connect=0,
         read=0,
         status=retries,

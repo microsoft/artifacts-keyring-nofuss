@@ -99,26 +99,6 @@ class TestRequestRetries:
             _http.request("GET", "https://example.com", max_attempts=999)
         assert session.request.call_count == _http._MAX_ATTEMPTS
 
-    def test_retries_on_retryable_status_then_succeeds(
-        self, mock_session_for_attempts: mock.MagicMock, mock_sleep: mock.MagicMock
-    ) -> None:
-        session = mock.Mock(spec=requests.Session)
-        mock_session_for_attempts.return_value = session
-        session.request.return_value = _response(200)
-        resp = _http.request("GET", "https://example.com", max_attempts=3)
-        assert resp.status_code == 200
-        assert session.request.call_count == 1
-
-    def test_returns_retryable_status_after_exhausting_attempts(
-        self, mock_session_for_attempts: mock.MagicMock, mock_sleep: mock.MagicMock
-    ) -> None:
-        session = mock.Mock(spec=requests.Session)
-        mock_session_for_attempts.return_value = session
-        session.request.return_value = _response(503)
-        resp = _http.request("GET", "https://example.com", max_attempts=2)
-        assert resp.status_code == 503
-        assert session.request.call_count == 1
-
     def test_does_not_retry_non_retryable_status(
         self, mock_session_for_attempts: mock.MagicMock, mock_sleep: mock.MagicMock
     ) -> None:
@@ -165,10 +145,16 @@ class TestSessionConfiguration:
 
     def test_build_retry_uses_attempt_count(self) -> None:
         retry = _http._build_retry(4)
+        # Retry.status is the number of retry attempts for status codes.
         assert retry.status == 3
         assert retry.raise_on_status is False
         assert retry.backoff_factor == _http._BASE_DELAY
         assert set(retry.status_forcelist) == _http.RETRYABLE_STATUS
+
+    def test_status_retry_count_matches_attempt_budget(self) -> None:
+        retry = _http._build_retry(2)
+        assert retry.status == 1
+        assert retry.total == 1
 
     def test_non_default_attempts_get_new_session(self) -> None:
         default_session = _http._session_for_attempts(_http._SESSION_ATTEMPTS)
