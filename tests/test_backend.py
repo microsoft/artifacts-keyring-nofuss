@@ -58,7 +58,7 @@ class _FakeProvider:
     def __init__(self, name: str = "fake") -> None:
         self.name = name
 
-    def get_token(self, tenant_id: str) -> str | None:  # noqa: ARG002
+    def get_token(self, tenant_id: str) -> str | None:
         return None
 
 
@@ -327,7 +327,7 @@ class TestDiscover:
         }
         return resp
 
-    @mock.patch("artifacts_keyring_nofuss._backend.requests.get")
+    @mock.patch("artifacts_keyring_nofuss._backend._http.request")
     def test_valid_discovery(self, mock_get: mock.MagicMock) -> None:
         mock_get.return_value = self._mock_response(
             www_auth="Bearer authorization_uri=https://login.microsoftonline.com/my-tenant",
@@ -338,7 +338,7 @@ class TestDiscover:
         )
         assert result == ("my-tenant", "https://app.vssps.visualstudio.com")
 
-    @mock.patch("artifacts_keyring_nofuss._backend.requests.get")
+    @mock.patch("artifacts_keyring_nofuss._backend._http.request")
     def test_untrusted_auth_uri_rejected(self, mock_get: mock.MagicMock) -> None:
         mock_get.return_value = self._mock_response(
             www_auth="Bearer authorization_uri=https://evil.com/my-tenant",
@@ -349,7 +349,7 @@ class TestDiscover:
         )
         assert result is None
 
-    @mock.patch("artifacts_keyring_nofuss._backend.requests.get")
+    @mock.patch("artifacts_keyring_nofuss._backend._http.request")
     def test_untrusted_authority_rejected(self, mock_get: mock.MagicMock) -> None:
         mock_get.return_value = self._mock_response(
             www_auth="Bearer authorization_uri=https://login.microsoftonline.com/my-tenant",
@@ -360,7 +360,7 @@ class TestDiscover:
         )
         assert result is None
 
-    @mock.patch("artifacts_keyring_nofuss._backend.requests.get")
+    @mock.patch("artifacts_keyring_nofuss._backend._http.request")
     def test_http_authority_rejected(self, mock_get: mock.MagicMock) -> None:
         mock_get.return_value = self._mock_response(
             www_auth="Bearer authorization_uri=https://login.microsoftonline.com/my-tenant",
@@ -371,7 +371,7 @@ class TestDiscover:
         )
         assert result is None
 
-    @mock.patch("artifacts_keyring_nofuss._backend.requests.get")
+    @mock.patch("artifacts_keyring_nofuss._backend._http.request")
     def test_missing_headers(self, mock_get: mock.MagicMock) -> None:
         mock_get.return_value = self._mock_response()
         result = _discover(
@@ -604,7 +604,7 @@ class TestTokenRejectedRetry:
         }
         return resp
 
-    @mock.patch("artifacts_keyring_nofuss._backend.requests.get")
+    @mock.patch("artifacts_keyring_nofuss._backend._http.request")
     def test_strips_userinfo_before_request(self, mock_get: mock.MagicMock) -> None:
         mock_get.return_value = self._mock_response(
             www_auth="Bearer authorization_uri=https://login.microsoftonline.com/my-tenant",
@@ -614,7 +614,7 @@ class TestTokenRejectedRetry:
             "https://__token__@pkgs.dev.azure.com/org/proj/_packaging/feed/pypi/simple/"
         )
         # The GET request should NOT contain __token__
-        called_url = mock_get.call_args[0][0]
+        called_url = mock_get.call_args[0][1]
         assert "__token__" not in called_url
         assert "pkgs.dev.azure.com" in called_url
 

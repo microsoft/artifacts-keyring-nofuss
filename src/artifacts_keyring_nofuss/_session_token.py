@@ -7,6 +7,8 @@ import logging
 
 import requests
 
+from . import _http
+
 log = logging.getLogger(__name__)
 
 
@@ -36,7 +38,8 @@ def exchange(bearer_token: str, vsts_authority: str) -> str | None:
     }
 
     try:
-        resp = requests.post(
+        resp = _http.request(
+            "POST",
             url,
             json={
                 "scope": "vso.packaging",

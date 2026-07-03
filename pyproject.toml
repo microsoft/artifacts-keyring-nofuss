@@ -71,7 +71,7 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["E402"]  # module-level import not at top of file (after logging setup)
-"tests/*" = ["S101", "S105", "INP001"]  # assert, test credentials, and namespace package are fine in tests
+"tests/*" = ["S101", "S105", "INP001", "SLF001", "ARG002"]  # assert, test credentials, namespace package, private access, and unused mock args are fine in tests
 
 [tool.mypy]
 strict = true
