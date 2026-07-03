@@ -58,6 +58,32 @@ class TestRequestRetries:
         # Slept between attempts but not after the final failure.
         assert mock_sleep.call_count == 2
 
+    def test_does_not_retry_non_transient_exception(
+        self, mock_request: mock.MagicMock, mock_sleep: mock.MagicMock
+    ) -> None:
+        mock_request.side_effect = requests.exceptions.InvalidURL("bad url")
+        with pytest.raises(requests.exceptions.InvalidURL):
+            _http.request("GET", "not-a-url", max_attempts=3)
+        assert mock_request.call_count == 1
+        mock_sleep.assert_not_called()
+
+    def test_does_not_retry_ssl_error(
+        self, mock_request: mock.MagicMock, mock_sleep: mock.MagicMock
+    ) -> None:
+        mock_request.side_effect = requests.exceptions.SSLError("cert invalid")
+        with pytest.raises(requests.exceptions.SSLError):
+            _http.request("GET", "https://example.com", max_attempts=3)
+        assert mock_request.call_count == 1
+        mock_sleep.assert_not_called()
+
+    def test_max_attempts_is_capped(
+        self, mock_request: mock.MagicMock, mock_sleep: mock.MagicMock
+    ) -> None:
+        mock_request.side_effect = requests.ConnectionError("down")
+        with pytest.raises(requests.ConnectionError):
+            _http.request("GET", "https://example.com", max_attempts=999)
+        assert mock_request.call_count == _http._MAX_ATTEMPTS
+
     def test_retries_on_retryable_status_then_succeeds(
         self, mock_request: mock.MagicMock, mock_sleep: mock.MagicMock
     ) -> None:

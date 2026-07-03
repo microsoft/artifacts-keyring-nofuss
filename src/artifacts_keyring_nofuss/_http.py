@@ -30,7 +30,22 @@ _MAX_DELAY = 8.0
 # Status codes worth retrying: rate limiting and transient server errors.
 RETRYABLE_STATUS = frozenset({429, 500, 502, 503, 504})
 
+# Exception types worth retrying: dropped connections and timeouts. Other
+# RequestException subclasses (invalid URL, TLS/SSL misconfiguration, too many
+# redirects, ...) are not transient — retrying only adds delay and hides the
+# real error, so we let them propagate immediately.
+_RETRYABLE_EXCEPTIONS = (requests.ConnectionError, requests.Timeout)
+
 _MAX_ATTEMPTS_ENV = "ARTIFACTS_KEYRING_NOFUSS_RETRIES"
+
+
+def _is_retryable_exception(exc: requests.RequestException) -> bool:
+    """Return True if *exc* is a transient network failure worth retrying."""
+    # SSLError subclasses ConnectionError but almost always signals a
+    # misconfiguration (bad cert, protocol mismatch) rather than a blip.
+    if isinstance(exc, requests.exceptions.SSLError):
+        return False
+    return isinstance(exc, _RETRYABLE_EXCEPTIONS)
 
 
 def _configured_attempts() -> int:
@@ -62,26 +77,25 @@ def request(
 ) -> requests.Response:
     """Perform an HTTP request, retrying transient failures with backoff.
 
-    Retries on connection errors, timeouts, and retryable status codes
-    (:data:`RETRYABLE_STATUS`).  The final response is returned as-is so the
-    caller can inspect non-retryable statuses (e.g. a ``401`` carrying a
-    ``WWW-Authenticate`` header, or a rejected bearer token).
+    Retries on transient connection errors, timeouts, and retryable status
+    codes (:data:`RETRYABLE_STATUS`).  Non-transient failures (invalid URL,
+    TLS/SSL misconfiguration, ...) propagate immediately.  The final response is
+    returned as-is so the caller can inspect non-retryable statuses (e.g. a
+    ``401`` carrying a ``WWW-Authenticate`` header, or a rejected bearer token).
 
     Raises the last :class:`requests.RequestException` if every attempt fails
     at the network level.
     """
     attempts = max_attempts if max_attempts is not None else _configured_attempts()
-    attempts = max(_MIN_ATTEMPTS, attempts)
+    attempts = max(_MIN_ATTEMPTS, min(_MAX_ATTEMPTS, attempts))
 
-    last_exc: requests.RequestException | None = None
     for attempt in range(1, attempts + 1):
         try:
             # Timeout is always supplied by callers via **kwargs.
             resp = requests.request(method, url, **kwargs)  # type: ignore[arg-type]  # noqa: S113
         except requests.RequestException as exc:
-            last_exc = exc
-            if attempt >= attempts:
-                break
+            if not _is_retryable_exception(exc) or attempt >= attempts:
+                raise
             delay = _backoff_delay(attempt)
             log.debug(
                 "request %s %s failed (attempt %d/%d), retrying in %.2fs",
@@ -111,6 +125,6 @@ def request(
 
         return resp
 
-    # All attempts exhausted at the network level.
-    assert last_exc is not None  # noqa: S101 (loop only breaks with an exception set)
-    raise last_exc
+    # Unreachable: the loop always returns a response or raises.
+    msg = "retry loop exited without returning or raising"  # pragma: no cover
+    raise AssertionError(msg)  # pragma: no cover
