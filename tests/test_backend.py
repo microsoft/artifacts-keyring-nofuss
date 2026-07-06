@@ -905,7 +905,7 @@ class TestWorkloadIdentityProvider:
         ):
             assert provider.get_token("any-tenant") is None
 
-    @mock.patch("artifacts_keyring_nofuss._workload_identity.requests.post")
+    @mock.patch("artifacts_keyring_nofuss._workload_identity._http.request")
     def test_exchanges_federated_token(self, mock_post: mock.MagicMock) -> None:
         mock_post.return_value.json.return_value = {"access_token": "bearer-123"}
         mock_post.return_value.raise_for_status = mock.MagicMock()
@@ -928,11 +928,11 @@ class TestWorkloadIdentityProvider:
         assert result == "bearer-123"
         # Should use AZURE_TENANT_ID over discovered tenant
         call_args = mock_post.call_args
-        assert "my-tenant" in call_args[0][0]
+        assert "my-tenant" in call_args[0][1]
         assert call_args[1]["data"]["client_id"] == "my-client-id"
         assert call_args[1]["data"]["client_assertion"] == "federated-jwt"
 
-    @mock.patch("artifacts_keyring_nofuss._workload_identity.requests.post")
+    @mock.patch("artifacts_keyring_nofuss._workload_identity._http.request")
     def test_falls_back_to_discovered_tenant(self, mock_post: mock.MagicMock) -> None:
         mock_post.return_value.json.return_value = {"access_token": "bearer-456"}
         mock_post.return_value.raise_for_status = mock.MagicMock()
@@ -952,9 +952,9 @@ class TestWorkloadIdentityProvider:
             result = provider.get_token("discovered-tenant")
 
         assert result == "bearer-456"
-        assert "discovered-tenant" in mock_post.call_args[0][0]
+        assert "discovered-tenant" in mock_post.call_args[0][1]
 
-    @mock.patch("artifacts_keyring_nofuss._workload_identity.requests.post")
+    @mock.patch("artifacts_keyring_nofuss._workload_identity._http.request")
     def test_returns_none_on_http_error(self, mock_post: mock.MagicMock) -> None:
         mock_post.return_value.raise_for_status.side_effect = requests.HTTPError("401")
 

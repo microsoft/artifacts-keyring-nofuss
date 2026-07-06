@@ -22,10 +22,48 @@ from pathlib import Path
 import requests
 
 from . import _constants as C
+from . import _http
 
 log = logging.getLogger(__name__)
 
 _TOKEN_URL = "https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token"  # noqa: S105
+
+
+def mint_bearer(
+    client_id: str,
+    assertion: str,
+    tenant_id: str,
+    resource: str = C.RESOURCE_ID,
+) -> str | None:
+    """Exchange a federated OIDC assertion for an Azure AD bearer token.
+
+    Performs the OAuth2 client-credentials grant with a JWT client assertion
+    against ``login.microsoftonline.com``.  Returns the ``access_token`` on
+    success, or ``None`` on any failure.  Never raises.
+    """
+    url = _TOKEN_URL.format(tenant=tenant_id)
+
+    try:
+        resp = _http.request(
+            "POST",
+            url,
+            data={
+                "client_id": client_id,
+                "client_assertion": assertion,
+                "client_assertion_type": (
+                    "urn:ietf:params:oauth:client-assertion-type:jwt-bearer"
+                ),
+                "grant_type": "client_credentials",
+                "scope": f"{resource}/.default",
+            },
+            timeout=30,
+        )
+        resp.raise_for_status()
+    except requests.RequestException:
+        log.debug("workload identity: token request failed", exc_info=True)
+        return None
+
+    return resp.json().get("access_token") or None
 
 
 class WorkloadIdentityProvider:
@@ -55,25 +93,4 @@ class WorkloadIdentityProvider:
             return None
 
         tid = env_tenant or tenant_id
-        url = _TOKEN_URL.format(tenant=tid)
-
-        try:
-            resp = requests.post(
-                url,
-                data={
-                    "client_id": client_id,
-                    "client_assertion": assertion,
-                    "client_assertion_type": (
-                        "urn:ietf:params:oauth:client-assertion-type:jwt-bearer"
-                    ),
-                    "grant_type": "client_credentials",
-                    "scope": f"{C.RESOURCE_ID}/.default",
-                },
-                timeout=30,
-            )
-            resp.raise_for_status()
-        except requests.RequestException:
-            log.debug("workload identity: token request failed", exc_info=True)
-            return None
-
-        return resp.json().get("access_token") or None
+        return mint_bearer(client_id, assertion, tid)

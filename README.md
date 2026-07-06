@@ -198,6 +198,80 @@ When using `azure/login@v2` in GitHub Actions, the action automatically sets
 The workload identity provider detects these and exchanges the federated token
 for a bearer — no extra configuration needed.
 
+### Minting a token without `az` (CI / Docker builds)
+
+Inside `docker buildx build`, this backend can't perform Workload Identity
+Federation itself: the OIDC material (`AZURE_CLIENT_ID`,
+`AZURE_FEDERATED_TOKEN_FILE`) lives on the CI runner, not inside the isolated
+build. The standard workaround is to **mint a feed token on the runner** and
+inject it into the build as a BuildKit secret, where the env_var provider
+consumes it.
+
+That minting is often done with `az account get-access-token`, which is
+heavyweight and can hang. This package ships a hang-proof, pure-Python
+alternative — `artifacts-keyring-nofuss mint-token` — that reuses the same
+federated-token exchange with a bounded timeout and retry/backoff. It reads
+`AZURE_CLIENT_ID` and `AZURE_FEDERATED_TOKEN_FILE` (set by `azure/login@v2`)
+and prints the bearer token to stdout:
+
+```yaml
+# .github/workflows/build.yml
+jobs:
+  build:
+    permissions:
+      id-token: write   # required for OIDC
+      contents: read
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Mint feed token
+        run: |
+          pip install artifacts-keyring-nofuss
+          TOKEN=$(artifacts-keyring-nofuss mint-token)
+          echo "::add-mask::$TOKEN"
+          echo "ARTIFACTS_KEYRING_NOFUSS_TOKEN=$TOKEN" >> "$GITHUB_ENV"
+
+      - name: Build image
+        run: |
+          DOCKER_BUILDKIT=1 docker buildx build \
+            --secret id=ARTIFACTS_KEYRING_NOFUSS_TOKEN,env=ARTIFACTS_KEYRING_NOFUSS_TOKEN \
+            -t myorg/my-image .
+```
+
+Always run `::add-mask::` on the minted token so it is redacted from logs.
+
+The Dockerfile consumes the secret exactly as in the BuildKit example above:
+
+```dockerfile
+RUN --mount=type=secret,id=ARTIFACTS_KEYRING_NOFUSS_TOKEN \
+    PIP_KEYRING_PROVIDER=import pip install \
+    --index-url https://__token__@pkgs.dev.azure.com/{org}/_packaging/<feed>/pypi/simple/ \
+    my-private-package
+```
+
+Prefer keeping the token out of your shell environment? Use the `exec` form,
+which mints the token, sets `ARTIFACTS_KEYRING_NOFUSS_TOKEN` in the child
+environment, and runs the wrapped command:
+
+```bash
+artifacts-keyring-nofuss exec -- \
+  docker buildx build \
+    --secret id=ARTIFACTS_KEYRING_NOFUSS_TOKEN,env=ARTIFACTS_KEYRING_NOFUSS_TOKEN \
+    -t myorg/my-image .
+```
+
+You can also write the token straight to a file (created with `0600`
+permissions) with `--output-file PATH`, and override the tenant or target
+resource with `--tenant` / `--resource`. The same command works via
+`python -m artifacts_keyring_nofuss mint-token`.
+
 ### GitHub Codespaces
 
 Add the [`artifacts-helper`](https://github.com/microsoft/codespace-features)
