@@ -1,0 +1,55 @@
+name: Mint Azure DevOps feed token
+description: >-
+  Mint a short-lived Azure DevOps Artifacts feed bearer token on the runner
+  (pure-Python, no Azure CLI) and expose it as a step output and the
+  ARTIFACTS_KEYRING_NOFUSS_TOKEN environment variable for later steps.
+branding:
+  icon: key
+  color: blue
+
+inputs:
+  tenant:
+    description: >-
+      Azure AD tenant ID. Defaults to the AZURE_TENANT_ID environment variable
+      (set by azure/login@v2).
+    required: false
+    default: ""
+  resource:
+    description: >-
+      Resource ID to scope the token to. Defaults to the Azure DevOps resource
+      used by the package.
+    required: false
+    default: ""
+
+outputs:
+  token:
+    description: The minted bearer token (also masked in logs).
+    value: ${{ steps.mint.outputs.token }}
+
+runs:
+  using: composite
+  steps:
+    - name: Mint feed token
+      id: mint
+      shell: bash
+      env:
+        AK_NOFUSS_TENANT: ${{ inputs.tenant }}
+        AK_NOFUSS_RESOURCE: ${{ inputs.resource }}
+      run: |
+        set -euo pipefail
+
+        args=(mint-token)
+        if [ -n "${AK_NOFUSS_TENANT}" ]; then
+          args+=(--tenant "${AK_NOFUSS_TENANT}")
+        fi
+        if [ -n "${AK_NOFUSS_RESOURCE}" ]; then
+          args+=(--resource "${AK_NOFUSS_RESOURCE}")
+        fi
+
+        # Ephemeral, no-PATH form: --from is required because the executable
+        # name (ak-nofuss) differs from the package name.
+        token="$(uvx --from artifacts-keyring-nofuss ak-nofuss "${args[@]}")"
+
+        echo "::add-mask::${token}"
+        echo "token=${token}" >> "${GITHUB_OUTPUT}"
+        echo "ARTIFACTS_KEYRING_NOFUSS_TOKEN=${token}" >> "${GITHUB_ENV}"

@@ -209,10 +209,45 @@ consumes it.
 
 That minting is often done with `az account get-access-token`, which is
 heavyweight and can hang. This package ships a hang-proof, pure-Python
-alternative — `artifacts-keyring-nofuss mint-token` — that reuses the same
+alternative — the `ak-nofuss mint-token` command — that reuses the same
 federated-token exchange with a bounded timeout and retry/backoff. It reads
 `AZURE_CLIENT_ID` and `AZURE_FEDERATED_TOKEN_FILE` (set by `azure/login@v2`)
-and prints the bearer token to stdout:
+and prints the bearer token to stdout.
+
+#### Installing the CLI
+
+The executable is named `ak-nofuss` (distinct from the `artifacts-keyring-nofuss`
+package name), so how you run it depends on your environment:
+
+- **Interactive / long-lived runner** — install `keyring` as a
+  [`uv` tool](https://docs.astral.sh/uv/) and expose *our* executable on `PATH`
+  alongside it:
+
+  ```bash
+  uv tool install keyring --with-executables-from artifacts-keyring-nofuss
+  ```
+
+  `--with-executables-from` (not `--with`) is what puts `ak-nofuss` on `PATH`;
+  `--with` would install the package into the tool environment but would not
+  expose its console script. After this, `keyring` and `ak-nofuss` are both
+  available directly.
+
+- **Ephemeral CI (no install, nothing added to `PATH`)** — run it on demand
+  with `uvx`. The `--from` is required because the executable name differs from
+  the package name:
+
+  ```bash
+  uvx --from artifacts-keyring-nofuss ak-nofuss mint-token
+  ```
+
+You can also use plain `pip install artifacts-keyring-nofuss`, which places
+`ak-nofuss` on `PATH` in the active environment.
+
+#### GitHub Actions (composite action — most convenient)
+
+This repository ships a composite action that mints the token via the ephemeral
+`uvx` form, masks it, and exposes it as both a step output and the
+`ARTIFACTS_KEYRING_NOFUSS_TOKEN` environment variable for later steps:
 
 ```yaml
 # .github/workflows/build.yml
@@ -231,12 +266,13 @@ jobs:
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
+      - uses: astral-sh/setup-uv@v6
+
       - name: Mint feed token
-        run: |
-          pip install artifacts-keyring-nofuss
-          TOKEN=$(artifacts-keyring-nofuss mint-token)
-          echo "::add-mask::$TOKEN"
-          echo "ARTIFACTS_KEYRING_NOFUSS_TOKEN=$TOKEN" >> "$GITHUB_ENV"
+        uses: microsoft/artifacts-keyring-nofuss@v1
+        # inputs (both optional):
+        #   tenant:   Azure AD tenant ID (defaults to AZURE_TENANT_ID)
+        #   resource: resource ID to scope the token to
 
       - name: Build image
         run: |
@@ -245,7 +281,22 @@ jobs:
             -t myorg/my-image .
 ```
 
-Always run `::add-mask::` on the minted token so it is redacted from logs.
+#### GitHub Actions (manual step)
+
+If you'd rather mint the token inline:
+
+```yaml
+      - uses: astral-sh/setup-uv@v6
+
+      - name: Mint feed token
+        run: |
+          TOKEN=$(uvx --from artifacts-keyring-nofuss ak-nofuss mint-token)
+          echo "::add-mask::$TOKEN"
+          echo "ARTIFACTS_KEYRING_NOFUSS_TOKEN=$TOKEN" >> "$GITHUB_ENV"
+```
+
+Always run `::add-mask::` on the minted token so it is redacted from logs (the
+composite action does this for you).
 
 The Dockerfile consumes the secret exactly as in the BuildKit example above:
 
@@ -261,7 +312,7 @@ which mints the token, sets `ARTIFACTS_KEYRING_NOFUSS_TOKEN` in the child
 environment, and runs the wrapped command:
 
 ```bash
-artifacts-keyring-nofuss exec -- \
+ak-nofuss exec -- \
   docker buildx build \
     --secret id=ARTIFACTS_KEYRING_NOFUSS_TOKEN,env=ARTIFACTS_KEYRING_NOFUSS_TOKEN \
     -t myorg/my-image .

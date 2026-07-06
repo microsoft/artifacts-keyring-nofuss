@@ -110,7 +110,7 @@ def _cmd_exec(args: argparse.Namespace) -> int:
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="artifacts-keyring-nofuss",
+        prog="ak-nofuss",
         description="Mint Azure DevOps feed bearer tokens without the Azure CLI.",
     )
     subparsers = parser.add_subparsers(dest="command_name", required=True)
