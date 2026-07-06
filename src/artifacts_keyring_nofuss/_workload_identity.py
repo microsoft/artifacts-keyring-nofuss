@@ -63,7 +63,14 @@ def mint_bearer(
         log.debug("workload identity: token request failed", exc_info=True)
         return None
 
-    return resp.json().get("access_token") or None
+    try:
+        payload = resp.json()
+    except ValueError:
+        log.debug("workload identity: token response was not valid JSON", exc_info=True)
+        return None
+
+    token = payload.get("access_token") if isinstance(payload, dict) else None
+    return token if isinstance(token, str) and token else None
 
 
 class WorkloadIdentityProvider:

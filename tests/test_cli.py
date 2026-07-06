@@ -93,7 +93,8 @@ class TestMintToken:
         assert rc == 0
         assert capsys.readouterr().out == ""
         assert out_file.read_text() == "TOKEN"
-        assert (out_file.stat().st_mode & 0o777) == 0o600
+        if sys.platform != "win32":
+            assert (out_file.stat().st_mode & 0o777) == 0o600
 
     def test_python_m_invocation(
         self,

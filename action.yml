@@ -51,5 +51,17 @@ runs:
         token="$(uvx --from artifacts-keyring-nofuss ak-nofuss "${args[@]}")"
 
         echo "::add-mask::${token}"
-        echo "token=${token}" >> "${GITHUB_OUTPUT}"
-        echo "ARTIFACTS_KEYRING_NOFUSS_TOKEN=${token}" >> "${GITHUB_ENV}"
+
+        # Use the heredoc form for both files so an unexpected newline or
+        # special character in the value cannot inject additional entries.
+        delim="AKN_$(openssl rand -hex 16 2>/dev/null || echo RANDOM_$RANDOM$RANDOM)"
+        {
+          echo "token<<${delim}"
+          echo "${token}"
+          echo "${delim}"
+        } >> "${GITHUB_OUTPUT}"
+        {
+          echo "ARTIFACTS_KEYRING_NOFUSS_TOKEN<<${delim}"
+          echo "${token}"
+          echo "${delim}"
+        } >> "${GITHUB_ENV}"

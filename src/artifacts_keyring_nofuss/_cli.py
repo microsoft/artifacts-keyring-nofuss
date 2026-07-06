@@ -15,6 +15,7 @@ Subcommands:
 from __future__ import annotations
 
 import argparse
+import logging
 import os
 import subprocess
 import sys
@@ -22,6 +23,8 @@ from pathlib import Path
 
 from . import _constants as C
 from ._workload_identity import mint_bearer
+
+log = logging.getLogger(__name__)
 
 _TOKEN_ENV_VAR = "ARTIFACTS_KEYRING_NOFUSS_TOKEN"  # noqa: S105
 
@@ -81,14 +84,30 @@ def _cmd_mint_token(args: argparse.Namespace) -> int:
 
     output_file = args.output_file
     if output_file:
-        path = Path(output_file)
-        path.write_text(token)
-        path.chmod(0o600)
+        _write_secret_file(output_file, token)
     else:
         sys.stdout.write(token)
         sys.stdout.write("\n")
 
     return 0
+
+
+def _write_secret_file(output_file: str, token: str) -> None:
+    """Write ``token`` to ``output_file`` created with ``0600`` from the start.
+
+    Opening with an explicit mode avoids the brief window (present when writing
+    first and ``chmod``-ing afterwards) where the secret could be readable by
+    other users on POSIX.  The follow-up ``chmod`` tightens permissions when the
+    file already existed.  Mode bits are largely ignored on Windows.
+    """
+    path = Path(output_file)
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as handle:
+        handle.write(token)
+    try:
+        path.chmod(0o600)
+    except OSError:
+        log.debug("could not chmod %s", output_file, exc_info=True)
 
 
 def _cmd_exec(args: argparse.Namespace) -> int:
