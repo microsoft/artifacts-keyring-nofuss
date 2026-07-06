@@ -14,6 +14,24 @@ Minimal, pure-Python keyring backend for Azure DevOps Artifacts feeds.
 Replaces the official `artifacts-keyring` (which wraps a ~100 MB .NET binary)
 with a no-fuss, pure-Python implementation — no .NET required.
 
+## Why this
+
+It focuses on the cases the official package makes awkward:
+
+- **No .NET runtime** — pure Python, auditable, nothing extra to pull into a
+  build image.
+- **Reuses an existing `az login`** — no separate interactive sign-in for local
+  development.
+- **GitHub Actions OIDC / Workload Identity Federation** handled in-process — no
+  token-marshalling step.
+- **Built for CI** — a single token environment variable, bounded
+  retry/backoff for flaky networks, and a hang-proof `ak-nofuss mint-token`
+  helper for containers without `az`.
+
+For interactive sign-in, personal access tokens, and managed identity, the
+official `artifacts-keyring` already handles those natively; this project is a
+best-effort convenience alternative, not a replacement for supported tooling.
+
 ## Install
 
 ### Recommended: standalone tool
