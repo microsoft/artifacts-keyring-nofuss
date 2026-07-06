@@ -27,6 +27,13 @@ export AZURE_CLIENT_ID=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
 
 When unset, system-assigned managed identity is used.
 
+??? note "What this simplifies vs. official `artifacts-keyring`"
+    The official package has **no managed-identity flow** — the credential
+    provider is built around interactive/PAT auth, so on a VM or container you'd
+    typically mint a token yourself and hand it over via
+    `VSS_NUGET_EXTERNAL_FEED_ENDPOINTS`. Here, a managed identity is picked up
+    automatically through `azure-identity`; no token wrangling required.
+
 ## Service principal with secret
 
 Set the standard Azure Identity environment variables:
@@ -40,6 +47,14 @@ export AZURE_CLIENT_SECRET=your-secret
 This requires the `azure-identity` package (included as a dependency). The service principal must have
 permissions on the Azure DevOps feed (e.g. Feed Reader).
 
+??? note "What this simplifies vs. official `artifacts-keyring`"
+    With the official package you'd acquire a token for the service principal
+    out-of-band and inject it as a per-endpoint JSON blob
+    (`VSS_NUGET_EXTERNAL_FEED_ENDPOINTS`). Here the standard
+    `AZURE_CLIENT_ID` / `AZURE_TENANT_ID` / `AZURE_CLIENT_SECRET` trio is
+    consumed directly — the same variables you already use elsewhere in Azure
+    tooling, with no feed-specific JSON.
+
 ## Bearer token via environment variable
 
 For CI pipelines and Docker builds, pass a pre-minted bearer token:
@@ -50,6 +65,20 @@ export ARTIFACTS_KEYRING_NOFUSS_TOKEN=<bearer-token>
 
 For backward compatibility with existing `artifacts-keyring` CI configs,
 `VSS_NUGET_ACCESSTOKEN` is also accepted as a fallback.
+
+??? note "What this simplifies vs. official `artifacts-keyring`"
+    The official package expects `VSS_NUGET_EXTERNAL_FEED_ENDPOINTS` — a JSON
+    document that maps **each feed endpoint** to a username and
+    password/token:
+
+    ```json
+    {"endpointCredentials":[{"endpoint":"https://pkgs.dev.azure.com/ORG/_packaging/FEED/pypi/simple/","username":"AzureDevOps","password":"<token>"}]}
+    ```
+
+    Here a single `ARTIFACTS_KEYRING_NOFUSS_TOKEN` (or its `_FILE` variant)
+    covers any supported feed — no JSON, no per-endpoint entries to keep in
+    sync. The legacy `VSS_NUGET_ACCESSTOKEN` bearer value is still honored as a
+    fallback.
 
 ### Reading tokens from files (`_FILE` convention)
 

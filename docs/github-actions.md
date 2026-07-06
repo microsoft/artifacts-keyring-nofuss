@@ -7,6 +7,13 @@ When using `azure/login@v2` in GitHub Actions, the action automatically sets
 The workload identity provider detects these and exchanges the federated token
 for a bearer — no extra configuration needed for direct installs.
 
+??? note "What this simplifies vs. official `artifacts-keyring`"
+    The official package has no Workload Identity Federation flow, so the usual
+    pattern is an extra step that mints a token and marshals it into the
+    `VSS_NUGET_EXTERNAL_FEED_ENDPOINTS` JSON. Here, a direct install "just
+    works" straight after `azure/login@v2` — the OIDC env vars are detected and
+    exchanged automatically, with nothing feed-specific to assemble.
+
 For Docker builds, the OIDC material lives on the runner and can't reach the
 isolated build, so you mint a feed token on the runner and pass it in as a
 BuildKit secret. The two approaches below do exactly that; see
@@ -65,7 +72,13 @@ If you'd rather mint the token inline:
         run: |
           TOKEN=$(uvx --from artifacts-keyring-nofuss ak-nofuss mint-token)
           echo "::add-mask::$TOKEN"
-          echo "ARTIFACTS_KEYRING_NOFUSS_TOKEN=$TOKEN" >> "$GITHUB_ENV"
+          # Heredoc form so an unexpected character in the value can't inject
+          # extra environment entries.
+          {
+            echo "ARTIFACTS_KEYRING_NOFUSS_TOKEN<<EOF"
+            echo "$TOKEN"
+            echo "EOF"
+          } >> "$GITHUB_ENV"
 ```
 
 Always run `::add-mask::` on the minted token so it is redacted from logs (the

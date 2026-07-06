@@ -38,6 +38,14 @@ DOCKER_BUILDKIT=1 docker buildx build \
 The token is available at `/run/secrets/ARTIFACTS_KEYRING_NOFUSS_TOKEN` only during
 that `RUN` step and is never baked into the image.
 
+??? note "What this simplifies vs. official `artifacts-keyring`"
+    Using the official package inside a build means putting the **.NET runtime
+    and the credential provider** into the image (or a builder stage), plus
+    supplying the `VSS_NUGET_EXTERNAL_FEED_ENDPOINTS` JSON. Here the container
+    only needs a small pure-Python wheel, and the env_var provider
+    **auto-detects the BuildKit secret** under `/run/secrets/` — so the `RUN`
+    step needs no extra environment variables at all.
+
 See [Reading tokens from files](configuration.md#reading-tokens-from-files-_file-convention)
 for the full `_FILE`/BuildKit priority order.
 
@@ -56,6 +64,14 @@ alternative — the `ak-nofuss mint-token` command — that reuses the same
 federated-token exchange with a bounded timeout and retry/backoff. It reads
 `AZURE_CLIENT_ID` and `AZURE_FEDERATED_TOKEN_FILE` (set by `azure/login@v2`)
 and prints the bearer token to stdout.
+
+??? note "What this simplifies vs. official `artifacts-keyring`"
+    The official package offers no token-minting helper — for a build you'd
+    reach for `az account get-access-token` (needs the Azure CLI on the runner
+    and can hang) or a separate script. `ak-nofuss mint-token` does the same
+    federated-token exchange in **pure Python with a bounded timeout and
+    retry/backoff**, and needs only the OIDC env vars `azure/login@v2` already
+    exports.
 
 ### Installing the CLI
 
