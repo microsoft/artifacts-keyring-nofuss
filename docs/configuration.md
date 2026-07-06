@@ -28,15 +28,12 @@ export AZURE_CLIENT_ID=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
 When unset, system-assigned managed identity is used.
 
 ??? note "The same with official `artifacts-keyring`"
-    There's no managed-identity path, so you fetch a token from the instance
-    metadata endpoint yourself and hand it over as per-endpoint JSON:
+    Install the .NET credential provider, then declare the identity per endpoint
+    (`clientId` is the user-assigned client ID, or `"system"` for a
+    system-assigned identity):
 
     ```bash
-    TOKEN=$(curl -s -H Metadata:true \
-      "http://169.254.169.254/metadata/identity/oauth2/token?api-version=2018-02-01&resource=499b84ac-1321-427f-aa17-267ca6975798" \
-      | python -c "import sys,json; print(json.load(sys.stdin)['access_token'])")
-
-    export VSS_NUGET_EXTERNAL_FEED_ENDPOINTS='{"endpointCredentials":[{"endpoint":"https://pkgs.dev.azure.com/{org}/_packaging/{feed}/pypi/simple/","username":"AzureDevOps","password":"'"$TOKEN"'"}]}'
+    export ARTIFACTS_CREDENTIALPROVIDER_FEED_ENDPOINTS='{"endpointCredentials":[{"endpoint":"https://pkgs.dev.azure.com/{org}/_packaging/{feed}/pypi/simple/","clientId":"xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"}]}'
     ```
 
 ## Service principal with secret
