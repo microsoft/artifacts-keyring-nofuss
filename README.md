@@ -240,6 +240,19 @@ package name), so how you run it depends on your environment:
   uvx --from artifacts-keyring-nofuss ak-nofuss mint-token
   ```
 
+- **Using pipx instead of uv** — inject the package into a `keyring` install and
+  expose *our* executable with `--include-apps` (pipx's equivalent of uv's
+  `--with-executables-from`):
+
+  ```bash
+  pipx inject --include-apps keyring artifacts-keyring-nofuss
+  ```
+
+  Plain `pipx inject keyring artifacts-keyring-nofuss` installs the package but
+  does **not** put `ak-nofuss` on `PATH` — `--include-apps` is required.
+  Alternatively, `pipx install artifacts-keyring-nofuss` installs `ak-nofuss`
+  standalone.
+
 You can also use plain `pip install artifacts-keyring-nofuss`, which places
 `ak-nofuss` on `PATH` in the active environment.
 
