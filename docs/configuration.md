@@ -27,12 +27,17 @@ export AZURE_CLIENT_ID=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
 
 When unset, system-assigned managed identity is used.
 
-??? note "What this simplifies vs. official `artifacts-keyring`"
-    The official package has **no managed-identity flow** — the credential
-    provider is built around interactive/PAT auth, so on a VM or container you'd
-    typically mint a token yourself and hand it over via
-    `VSS_NUGET_EXTERNAL_FEED_ENDPOINTS`. Here, a managed identity is picked up
-    automatically through `azure-identity`; no token wrangling required.
+??? note "The same with official `artifacts-keyring`"
+    There's no managed-identity path, so you fetch a token from the instance
+    metadata endpoint yourself and hand it over as per-endpoint JSON:
+
+    ```bash
+    TOKEN=$(curl -s -H Metadata:true \
+      "http://169.254.169.254/metadata/identity/oauth2/token?api-version=2018-02-01&resource=499b84ac-1321-427f-aa17-267ca6975798" \
+      | python -c "import sys,json; print(json.load(sys.stdin)['access_token'])")
+
+    export VSS_NUGET_EXTERNAL_FEED_ENDPOINTS='{"endpointCredentials":[{"endpoint":"https://pkgs.dev.azure.com/{org}/_packaging/{feed}/pypi/simple/","username":"AzureDevOps","password":"'"$TOKEN"'"}]}'
+    ```
 
 ## Service principal with secret
 
@@ -47,13 +52,21 @@ export AZURE_CLIENT_SECRET=your-secret
 This requires the `azure-identity` package (included as a dependency). The service principal must have
 permissions on the Azure DevOps feed (e.g. Feed Reader).
 
-??? note "What this simplifies vs. official `artifacts-keyring`"
-    With the official package you'd acquire a token for the service principal
-    out-of-band and inject it as a per-endpoint JSON blob
-    (`VSS_NUGET_EXTERNAL_FEED_ENDPOINTS`). Here the standard
-    `AZURE_CLIENT_ID` / `AZURE_TENANT_ID` / `AZURE_CLIENT_SECRET` trio is
-    consumed directly — the same variables you already use elsewhere in Azure
-    tooling, with no feed-specific JSON.
+??? note "The same with official `artifacts-keyring`"
+    Acquire a token for the service principal yourself, then inject it as
+    per-endpoint JSON:
+
+    ```bash
+    TOKEN=$(curl -s -X POST \
+      "https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token" \
+      -d "client_id={client-id}" \
+      -d "client_secret={secret}" \
+      -d "grant_type=client_credentials" \
+      -d "scope=499b84ac-1321-427f-aa17-267ca6975798/.default" \
+      | python -c "import sys,json; print(json.load(sys.stdin)['access_token'])")
+
+    export VSS_NUGET_EXTERNAL_FEED_ENDPOINTS='{"endpointCredentials":[{"endpoint":"https://pkgs.dev.azure.com/{org}/_packaging/{feed}/pypi/simple/","username":"AzureDevOps","password":"'"$TOKEN"'"}]}'
+    ```
 
 ## Bearer token via environment variable
 
@@ -66,19 +79,13 @@ export ARTIFACTS_KEYRING_NOFUSS_TOKEN=<bearer-token>
 For backward compatibility with existing `artifacts-keyring` CI configs,
 `VSS_NUGET_ACCESSTOKEN` is also accepted as a fallback.
 
-??? note "What this simplifies vs. official `artifacts-keyring`"
-    The official package expects `VSS_NUGET_EXTERNAL_FEED_ENDPOINTS` — a JSON
-    document that maps **each feed endpoint** to a username and
-    password/token:
+??? note "The same with official `artifacts-keyring`"
+    The token goes into a per-endpoint JSON document, repeated for every feed
+    you use:
 
-    ```json
-    {"endpointCredentials":[{"endpoint":"https://pkgs.dev.azure.com/ORG/_packaging/FEED/pypi/simple/","username":"AzureDevOps","password":"<token>"}]}
+    ```bash
+    export VSS_NUGET_EXTERNAL_FEED_ENDPOINTS='{"endpointCredentials":[{"endpoint":"https://pkgs.dev.azure.com/{org}/_packaging/{feed}/pypi/simple/","username":"AzureDevOps","password":"<bearer-token>"}]}'
     ```
-
-    Here a single `ARTIFACTS_KEYRING_NOFUSS_TOKEN` (or its `_FILE` variant)
-    covers any supported feed — no JSON, no per-endpoint entries to keep in
-    sync. The legacy `VSS_NUGET_ACCESSTOKEN` bearer value is still honored as a
-    fallback.
 
 ### Reading tokens from files (`_FILE` convention)
 

@@ -38,13 +38,20 @@ DOCKER_BUILDKIT=1 docker buildx build \
 The token is available at `/run/secrets/ARTIFACTS_KEYRING_NOFUSS_TOKEN` only during
 that `RUN` step and is never baked into the image.
 
-??? note "What this simplifies vs. official `artifacts-keyring`"
-    Using the official package inside a build means putting the **.NET runtime
-    and the credential provider** into the image (or a builder stage), plus
-    supplying the `VSS_NUGET_EXTERNAL_FEED_ENDPOINTS` JSON. Here the container
-    only needs a small pure-Python wheel, and the env_var provider
-    **auto-detects the BuildKit secret** under `/run/secrets/` — so the `RUN`
-    step needs no extra environment variables at all.
+??? note "The same with official `artifacts-keyring`"
+    The build stage needs the .NET runtime plus the credential provider, and the
+    token supplied as per-endpoint JSON — for example:
+
+    ```dockerfile
+    RUN apt-get update && apt-get install -y dotnet-runtime-8.0 \
+        && pip install artifacts-keyring
+
+    RUN --mount=type=secret,id=VSS_NUGET_EXTERNAL_FEED_ENDPOINTS \
+        VSS_NUGET_EXTERNAL_FEED_ENDPOINTS="$(cat /run/secrets/VSS_NUGET_EXTERNAL_FEED_ENDPOINTS)" \
+        pip install \
+        --index-url https://pkgs.dev.azure.com/{org}/_packaging/{feed}/pypi/simple/ \
+        my-private-package
+    ```
 
 See [Reading tokens from files](configuration.md#reading-tokens-from-files-_file-convention)
 for the full `_FILE`/BuildKit priority order.
@@ -65,13 +72,17 @@ federated-token exchange with a bounded timeout and retry/backoff. It reads
 `AZURE_CLIENT_ID` and `AZURE_FEDERATED_TOKEN_FILE` (set by `azure/login@v2`)
 and prints the bearer token to stdout.
 
-??? note "What this simplifies vs. official `artifacts-keyring`"
-    The official package offers no token-minting helper — for a build you'd
-    reach for `az account get-access-token` (needs the Azure CLI on the runner
-    and can hang) or a separate script. `ak-nofuss mint-token` does the same
-    federated-token exchange in **pure Python with a bounded timeout and
-    retry/backoff**, and needs only the OIDC env vars `azure/login@v2` already
-    exports.
+??? note "The same with official `artifacts-keyring`"
+    There's no minting helper, so you shell out to the Azure CLI on the runner
+    (which needs `az` installed and can hang) and build the JSON yourself:
+
+    ```bash
+    TOKEN=$(az account get-access-token \
+      --resource 499b84ac-1321-427f-aa17-267ca6975798 \
+      --query accessToken -o tsv)
+
+    export VSS_NUGET_EXTERNAL_FEED_ENDPOINTS='{"endpointCredentials":[{"endpoint":"https://pkgs.dev.azure.com/{org}/_packaging/{feed}/pypi/simple/","username":"AzureDevOps","password":"'"$TOKEN"'"}]}'
+    ```
 
 ### Installing the CLI
 

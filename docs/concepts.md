@@ -12,16 +12,20 @@ Artifacts feed, this backend:
    bearer token directly as Basic auth credentials.
 5. **Returns** the credentials to the caller.
 
-??? note "What this simplifies vs. official `artifacts-keyring`"
-    The official [`artifacts-keyring`](https://pypi.org/project/artifacts-keyring/)
-    delegates to the [Azure Artifacts Credential Provider](https://github.com/microsoft/artifacts-credprovider),
-    a **.NET executable (~100 MB)** it downloads and shells out to. That provider
-    performs the token acquisition and (on first use) an **interactive browser /
-    device-code sign-in** via MSAL.
+??? note "The same first run with official `artifacts-keyring`"
+    ```bash
+    pip install artifacts-keyring
+    pip install \
+        --index-url https://pkgs.dev.azure.com/{org}/_packaging/{feed}/pypi/simple/ \
+        my-package
+    ```
 
-    This backend removes that layer entirely: token acquisition happens **in
-    pure Python, in-process**, with no .NET runtime, no plugin download, and no
-    interactive prompt. Everything below is a consequence of that one change.
+    On the first request, `artifacts-keyring` downloads the Azure Artifacts
+    Credential Provider (a .NET executable, ~100 MB) and opens an **interactive
+    browser / device-code sign-in**; the resulting token is cached on disk for
+    later runs. Unattended environments instead need a token supplied ahead of
+    time via `VSS_NUGET_EXTERNAL_FEED_ENDPOINTS` (see the scenarios that
+    follow).
 
 ## Auth flows (priority order)
 

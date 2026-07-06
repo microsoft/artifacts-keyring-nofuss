@@ -7,12 +7,24 @@ When using `azure/login@v2` in GitHub Actions, the action automatically sets
 The workload identity provider detects these and exchanges the federated token
 for a bearer — no extra configuration needed for direct installs.
 
-??? note "What this simplifies vs. official `artifacts-keyring`"
-    The official package has no Workload Identity Federation flow, so the usual
-    pattern is an extra step that mints a token and marshals it into the
-    `VSS_NUGET_EXTERNAL_FEED_ENDPOINTS` JSON. Here, a direct install "just
-    works" straight after `azure/login@v2` — the OIDC env vars are detected and
-    exchanged automatically, with nothing feed-specific to assemble.
+??? note "The same with official `artifacts-keyring`"
+    There's no OIDC path, so after `azure/login@v2` you mint a token and marshal
+    it into the JSON yourself:
+
+    ```yaml
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          allow-no-subscriptions: true
+
+      - name: Configure feed credentials
+        run: |
+          TOKEN=$(az account get-access-token \
+            --resource 499b84ac-1321-427f-aa17-267ca6975798 \
+            --query accessToken -o tsv)
+          echo "VSS_NUGET_EXTERNAL_FEED_ENDPOINTS={\"endpointCredentials\":[{\"endpoint\":\"https://pkgs.dev.azure.com/{org}/_packaging/{feed}/pypi/simple/\",\"username\":\"AzureDevOps\",\"password\":\"$TOKEN\"}]}" >> "$GITHUB_ENV"
+    ```
 
 For Docker builds, the OIDC material lives on the runner and can't reach the
 isolated build, so you mint a feed token on the runner and pass it in as a
