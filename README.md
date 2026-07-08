@@ -86,7 +86,7 @@ Artifacts feed, this backend:
 | 1 | **Environment variable** | Reads a bearer token from `ARTIFACTS_KEYRING_NOFUSS_TOKEN` (or `VSS_NUGET_ACCESSTOKEN` as fallback). Also supports `ARTIFACTS_KEYRING_NOFUSS_TOKEN_FILE` pointing to a file, and auto-detects Docker BuildKit secrets at `/run/secrets/`. Best for CI and Docker builds. |
 | 2 | **Azure CLI** | Runs `az account get-access-token`. Most common for local dev. |
 | 3 | **ADO auth helper** | Calls `~/ado-auth-helper` (created by the `ado-codespaces-auth` VS Code extension). Enables seamless auth in GitHub Codespaces. |
-| 4 | **Workload Identity** | Exchanges a federated token via `AZURE_CLIENT_ID` + `AZURE_FEDERATED_TOKEN_FILE` + `AZURE_TENANT_ID`. Best for GitHub Actions with `azure/login@v2`. |
+| 4 | **Workload Identity** | Exchanges a federated OIDC assertion via `AZURE_CLIENT_ID` (+ optional `AZURE_TENANT_ID`). The assertion comes from `AZURE_FEDERATED_TOKEN_FILE` when set, or — on GitHub Actions jobs with `permissions: id-token: write` — is fetched directly from the GitHub OIDC endpoint (no `az`, no token file needed). Best for GitHub Actions. |
 | 5 | **Azure Identity** | Uses `DefaultAzureCredential` from `azure-identity`. Handles managed identities (system + user-assigned), service principals (secret/cert), workload identity federation, and more. |
 
 ## Configuration
@@ -193,10 +193,20 @@ that `RUN` step and is never baked into the image.
 
 ### Workload Identity Federation (GitHub Actions OIDC)
 
-When using `azure/login@v2` in GitHub Actions, the action automatically sets
-`AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, and `AZURE_FEDERATED_TOKEN_FILE`.
-The workload identity provider detects these and exchanges the federated token
-for a bearer — no extra configuration needed.
+On a GitHub Actions job with `permissions: id-token: write`, the workload
+identity provider mints a bearer token directly from the GitHub OIDC endpoint —
+no Azure CLI and no federated token file required. It only needs `AZURE_CLIENT_ID`
+(and `AZURE_TENANT_ID`, or the tenant discovered from the feed URL). This works
+whether or not `azure/login@v2` ran.
+
+If an `AZURE_FEDERATED_TOKEN_FILE` is present (the AKS workload-identity
+convention), the provider reads the assertion from that file instead. The OIDC
+audience defaults to `api://AzureADTokenExchange` and can be overridden via
+`AZURE_FEDERATED_TOKEN_AUDIENCE` for sovereign clouds.
+
+> Note: `azure/login@v2` on GitHub-hosted runners authenticates the Azure CLI
+> but does **not** write an `AZURE_FEDERATED_TOKEN_FILE`; the GitHub OIDC path
+> above is what makes az-free minting work on those runners.
 
 ### Minting a token without `az` (CI / Docker builds)
 
@@ -210,9 +220,12 @@ consumes it.
 That minting is often done with `az account get-access-token`, which is
 heavyweight and can hang. This package ships a hang-proof, pure-Python
 alternative — the `ak-nofuss mint-token` command — that reuses the same
-federated-token exchange with a bounded timeout and retry/backoff. It reads
-`AZURE_CLIENT_ID` and `AZURE_FEDERATED_TOKEN_FILE` (set by `azure/login@v2`)
-and prints the bearer token to stdout.
+federated-token exchange with a bounded timeout and retry/backoff. It needs
+`AZURE_CLIENT_ID` (and `AZURE_TENANT_ID`, or `--tenant`), and obtains the OIDC
+assertion either from `AZURE_FEDERATED_TOKEN_FILE` or, on a GitHub Actions job
+with `permissions: id-token: write`, directly from the GitHub OIDC endpoint. It
+prints the bearer token to stdout. Because it can fetch the OIDC token itself,
+it does not require `az` or `azure/login` on the runner.
 
 #### Installing the CLI
 
@@ -273,19 +286,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: azure/login@v2
-        with:
-          client-id: ${{ secrets.AZURE_CLIENT_ID }}
-          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-
       - uses: astral-sh/setup-uv@v6
 
       - name: Mint feed token
         uses: microsoft/artifacts-keyring-nofuss@v1
-        # inputs (both optional):
-        #   tenant:   Azure AD tenant ID (defaults to AZURE_TENANT_ID)
-        #   resource: resource ID to scope the token to
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant: ${{ secrets.AZURE_TENANT_ID }}
+        # resource is optional (defaults to the Azure DevOps resource)
 
       - name: Build image
         run: |
@@ -293,6 +301,13 @@ jobs:
             --secret id=ARTIFACTS_KEYRING_NOFUSS_TOKEN,env=ARTIFACTS_KEYRING_NOFUSS_TOKEN \
             -t myorg/my-image .
 ```
+
+The action fetches the GitHub OIDC token itself, so `azure/login` is not
+required — you only need `id-token: write` plus the federated identity's
+`client-id` and `tenant`. Add `azure/login` only if other steps need an
+authenticated `az`; when it runs first, its exported `AZURE_CLIENT_ID` /
+`AZURE_TENANT_ID` are picked up automatically and the `with:` inputs can be
+omitted.
 
 #### GitHub Actions (manual step)
 
@@ -302,6 +317,9 @@ If you'd rather mint the token inline:
       - uses: astral-sh/setup-uv@v6
 
       - name: Mint feed token
+        env:
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
         run: |
           TOKEN=$(uvx --from artifacts-keyring-nofuss ak-nofuss mint-token)
           echo "::add-mask::$TOKEN"

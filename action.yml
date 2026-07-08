@@ -8,10 +8,16 @@ branding:
   color: blue
 
 inputs:
+  client-id:
+    description: >-
+      Azure AD (Entra) application/client ID of the federated identity. Defaults
+      to the AZURE_CLIENT_ID environment variable. Required unless AZURE_CLIENT_ID
+      is already set in the environment.
+    required: false
+    default: ""
   tenant:
     description: >-
-      Azure AD tenant ID. Defaults to the AZURE_TENANT_ID environment variable
-      (set by azure/login@v2).
+      Azure AD tenant ID. Defaults to the AZURE_TENANT_ID environment variable.
     required: false
     default: ""
   resource:
@@ -33,12 +39,16 @@ runs:
       id: mint
       shell: bash
       env:
+        AK_NOFUSS_CLIENT_ID: ${{ inputs.client-id }}
         AK_NOFUSS_TENANT: ${{ inputs.tenant }}
         AK_NOFUSS_RESOURCE: ${{ inputs.resource }}
       run: |
         set -euo pipefail
 
         args=(mint-token)
+        if [ -n "${AK_NOFUSS_CLIENT_ID}" ]; then
+          args+=(--client-id "${AK_NOFUSS_CLIENT_ID}")
+        fi
         if [ -n "${AK_NOFUSS_TENANT}" ]; then
           args+=(--tenant "${AK_NOFUSS_TENANT}")
         fi

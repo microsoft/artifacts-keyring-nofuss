@@ -10,7 +10,7 @@ from unittest import mock
 import pytest
 import requests
 
-from artifacts_keyring_nofuss import _cli, _workload_identity
+from artifacts_keyring_nofuss import _cli, _github_oidc, _workload_identity
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -25,7 +25,13 @@ def _set_env(monkeypatch: pytest.MonkeyPatch, fed: Path) -> None:
 
 @pytest.fixture
 def clean_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    for var in ("AZURE_CLIENT_ID", "AZURE_FEDERATED_TOKEN_FILE", "AZURE_TENANT_ID"):
+    for var in (
+        "AZURE_CLIENT_ID",
+        "AZURE_FEDERATED_TOKEN_FILE",
+        "AZURE_TENANT_ID",
+        "ACTIONS_ID_TOKEN_REQUEST_URL",
+        "ACTIONS_ID_TOKEN_REQUEST_TOKEN",
+    ):
         monkeypatch.delenv(var, raising=False)
 
 
@@ -114,6 +120,120 @@ class TestMintToken:
         assert exc.value.code == 0
         assert capsys.readouterr().out == "TOKEN\n"
 
+    @pytest.mark.usefixtures("clean_env")
+    def test_client_id_flag_without_env(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+        tmp_path: Path,
+    ) -> None:
+        fed = tmp_path / "fed"
+        fed.write_text("assertion")
+        monkeypatch.setenv("AZURE_FEDERATED_TOKEN_FILE", str(fed))
+        monkeypatch.setenv("AZURE_TENANT_ID", "tenant-abc")
+        with mock.patch(
+            "artifacts_keyring_nofuss._cli.mint_bearer", return_value="TOKEN"
+        ) as minted:
+            rc = _cli.main(["mint-token", "--client-id", "cid-flag"])
+        assert rc == 0
+        assert capsys.readouterr().out == "TOKEN\n"
+        assert minted.call_args.args[0] == "cid-flag"
+
+    @pytest.mark.usefixtures("clean_env")
+    def test_missing_client_id_returns_1(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+        tmp_path: Path,
+    ) -> None:
+        fed = tmp_path / "fed"
+        fed.write_text("assertion")
+        monkeypatch.setenv("AZURE_FEDERATED_TOKEN_FILE", str(fed))
+        monkeypatch.setenv("AZURE_TENANT_ID", "tenant-abc")
+        rc = _cli.main(["mint-token"])
+        assert rc == 1
+        out = capsys.readouterr()
+        assert out.out == ""
+        assert "client id" in out.err.lower()
+
+    @pytest.mark.usefixtures("clean_env")
+    def test_mints_via_github_oidc_without_token_file(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        monkeypatch.setenv("AZURE_CLIENT_ID", "client-123")
+        monkeypatch.setenv("AZURE_TENANT_ID", "tenant-abc")
+        monkeypatch.setenv("ACTIONS_ID_TOKEN_REQUEST_URL", "https://token.example/req")
+        monkeypatch.setenv("ACTIONS_ID_TOKEN_REQUEST_TOKEN", "req-token")
+        with (
+            mock.patch(
+                "artifacts_keyring_nofuss._cli._github_oidc.fetch_assertion",
+                return_value="gh-assertion",
+            ) as fetched,
+            mock.patch(
+                "artifacts_keyring_nofuss._cli.mint_bearer", return_value="TOKEN"
+            ) as minted,
+        ):
+            rc = _cli.main(["mint-token"])
+        assert rc == 0
+        assert capsys.readouterr().out == "TOKEN\n"
+        fetched.assert_called_once_with(_github_oidc.DEFAULT_AUDIENCE)
+        # The GitHub OIDC assertion is forwarded to the bearer exchange.
+        assert minted.call_args.args[1] == "gh-assertion"
+
+    @pytest.mark.usefixtures("clean_env")
+    def test_no_federated_credential_returns_1(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        monkeypatch.setenv("AZURE_CLIENT_ID", "client-123")
+        monkeypatch.setenv("AZURE_TENANT_ID", "tenant-abc")
+        rc = _cli.main(["mint-token"])
+        assert rc == 1
+        out = capsys.readouterr()
+        assert out.out == ""
+        assert "federated credential" in out.err.lower()
+
+
+class TestGitHubOidc:
+    def test_fetch_assertion_returns_value_on_200(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("ACTIONS_ID_TOKEN_REQUEST_URL", "https://token.example/req")
+        monkeypatch.setenv("ACTIONS_ID_TOKEN_REQUEST_TOKEN", "req-token")
+        resp = mock.MagicMock()
+        resp.json.return_value = {"value": "JWT"}
+        with mock.patch(
+            "artifacts_keyring_nofuss._github_oidc._http.request",
+            return_value=resp,
+        ) as req:
+            token = _github_oidc.fetch_assertion("aud")
+        assert token == "JWT"
+        _, kwargs = req.call_args
+        assert kwargs["params"] == {"audience": "aud"}
+        assert kwargs["headers"]["Authorization"] == "Bearer req-token"
+
+    def test_fetch_assertion_returns_none_without_env(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.delenv("ACTIONS_ID_TOKEN_REQUEST_URL", raising=False)
+        monkeypatch.delenv("ACTIONS_ID_TOKEN_REQUEST_TOKEN", raising=False)
+        assert _github_oidc.fetch_assertion() is None
+        assert _github_oidc.available() is False
+
+    def test_fetch_assertion_returns_none_on_failure(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("ACTIONS_ID_TOKEN_REQUEST_URL", "https://token.example/req")
+        monkeypatch.setenv("ACTIONS_ID_TOKEN_REQUEST_TOKEN", "req-token")
+        with mock.patch(
+            "artifacts_keyring_nofuss._github_oidc._http.request",
+            side_effect=requests.ConnectionError("boom"),
+        ):
+            assert _github_oidc.fetch_assertion() is None
+
 
 class TestExec:
     def test_sets_token_env_and_forwards_exit_code(
@@ -162,6 +282,58 @@ class TestExec:
         assert rc == 1
         run.assert_not_called()
         assert capsys.readouterr().err != ""
+
+
+class TestWorkloadIdentityProvider:
+    @pytest.mark.usefixtures("clean_env")
+    def test_reads_assertion_from_token_file(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        fed = tmp_path / "fed"
+        fed.write_text("file-assertion")
+        monkeypatch.setenv("AZURE_CLIENT_ID", "client-123")
+        monkeypatch.setenv("AZURE_FEDERATED_TOKEN_FILE", str(fed))
+        monkeypatch.setenv("AZURE_TENANT_ID", "tenant-abc")
+        with mock.patch(
+            "artifacts_keyring_nofuss._workload_identity.mint_bearer",
+            return_value="TOKEN",
+        ) as minted:
+            token = _workload_identity.WorkloadIdentityProvider().get_token("disc")
+        assert token == "TOKEN"
+        assert minted.call_args.args == ("client-123", "file-assertion", "tenant-abc")
+
+    @pytest.mark.usefixtures("clean_env")
+    def test_falls_back_to_github_oidc(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("AZURE_CLIENT_ID", "client-123")
+        monkeypatch.setenv("ACTIONS_ID_TOKEN_REQUEST_URL", "https://token.example/req")
+        monkeypatch.setenv("ACTIONS_ID_TOKEN_REQUEST_TOKEN", "req-token")
+        with (
+            mock.patch(
+                "artifacts_keyring_nofuss._workload_identity._github_oidc.fetch_assertion",
+                return_value="gh-assertion",
+            ) as fetched,
+            mock.patch(
+                "artifacts_keyring_nofuss._workload_identity.mint_bearer",
+                return_value="TOKEN",
+            ) as minted,
+        ):
+            # No AZURE_TENANT_ID -> discovered tenant is used.
+            token = _workload_identity.WorkloadIdentityProvider().get_token("disc")
+        assert token == "TOKEN"
+        fetched.assert_called_once_with(_github_oidc.DEFAULT_AUDIENCE)
+        assert minted.call_args.args == ("client-123", "gh-assertion", "disc")
+
+    @pytest.mark.usefixtures("clean_env")
+    def test_returns_none_without_any_assertion_source(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("AZURE_CLIENT_ID", "client-123")
+        with mock.patch(
+            "artifacts_keyring_nofuss._workload_identity.mint_bearer"
+        ) as minted:
+            token = _workload_identity.WorkloadIdentityProvider().get_token("disc")
+        assert token is None
+        minted.assert_not_called()
 
 
 class TestMintBearer:

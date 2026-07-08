@@ -6,6 +6,13 @@ Identity Federation exchange (federated OIDC assertion -> Azure AD bearer)
 so a token can be minted on the runner and injected into an isolated
 Docker build as a BuildKit secret.
 
+The federated OIDC assertion is resolved from either an
+``AZURE_FEDERATED_TOKEN_FILE`` (the AKS workload-identity convention) or,
+when running inside GitHub Actions with ``permissions: id-token: write``,
+directly from the GitHub Actions OIDC token endpoint.  The latter means the
+CLI can mint on a plain GitHub runner without the Azure CLI and without
+``azure/login`` writing a token file.
+
 Subcommands:
 - ``mint-token``: print (or write) a freshly minted bearer token.
 - ``exec``: mint a token, expose it via ``ARTIFACTS_KEYRING_NOFUSS_TOKEN``,
@@ -22,6 +29,7 @@ import sys
 from pathlib import Path
 
 from . import _constants as C
+from . import _github_oidc
 from ._workload_identity import mint_bearer
 
 log = logging.getLogger(__name__)
@@ -29,7 +37,60 @@ log = logging.getLogger(__name__)
 _TOKEN_ENV_VAR = "ARTIFACTS_KEYRING_NOFUSS_TOKEN"  # noqa: S105
 
 
-def _resolve_token(tenant: str | None, resource: str) -> str | None:
+def _resolve_assertion() -> str | None:
+    """Resolve a federated OIDC assertion, or print an error and return None.
+
+    Prefers ``AZURE_FEDERATED_TOKEN_FILE`` when set (AKS workload identity).
+    Otherwise, when running inside GitHub Actions with ``id-token: write``,
+    fetches an OIDC token directly from the GitHub token endpoint.
+    """
+    token_file = os.environ.get("AZURE_FEDERATED_TOKEN_FILE", "").strip()
+    if token_file:
+        try:
+            assertion = Path(token_file).read_text().strip()
+        except OSError:
+            print(
+                f"error: cannot read federated token file {token_file}",
+                file=sys.stderr,
+            )
+            return None
+        if not assertion:
+            print(
+                f"error: federated token file {token_file} is empty",
+                file=sys.stderr,
+            )
+            return None
+        return assertion
+
+    if _github_oidc.available():
+        # The audience for Entra ID workload-identity federation is a fixed
+        # value; only override it for non-public clouds via the env var.
+        audience = (
+            os.environ.get("AZURE_FEDERATED_TOKEN_AUDIENCE", "").strip()
+            or _github_oidc.DEFAULT_AUDIENCE
+        )
+        oidc_assertion = _github_oidc.fetch_assertion(audience)
+        if not oidc_assertion:
+            print(
+                "error: failed to obtain a GitHub Actions OIDC token "
+                "(is 'permissions: id-token: write' set on the job?)",
+                file=sys.stderr,
+            )
+            return None
+        return oidc_assertion
+
+    print(
+        "error: no federated credential available. Set "
+        "AZURE_FEDERATED_TOKEN_FILE, or run inside a GitHub Actions job with "
+        "'permissions: id-token: write'.",
+        file=sys.stderr,
+    )
+    return None
+
+
+def _resolve_token(
+    tenant: str | None, resource: str, client_id: str | None = None
+) -> str | None:
     """Mint a bearer token from the ambient OIDC env, or print an error.
 
     Returns the token on success, or ``None`` after writing a concise error
@@ -43,33 +104,19 @@ def _resolve_token(tenant: str | None, resource: str) -> str | None:
         )
         return None
 
-    client_id = os.environ.get("AZURE_CLIENT_ID", "").strip()
-    token_file = os.environ.get("AZURE_FEDERATED_TOKEN_FILE", "").strip()
-    if not client_id or not token_file:
+    resolved_client_id = (client_id or os.environ.get("AZURE_CLIENT_ID", "")).strip()
+    if not resolved_client_id:
         print(
-            "error: AZURE_CLIENT_ID and AZURE_FEDERATED_TOKEN_FILE must be set "
-            "(run azure/login@v2 first)",
+            "error: no client ID specified (pass --client-id or set AZURE_CLIENT_ID)",
             file=sys.stderr,
         )
         return None
 
-    try:
-        assertion = Path(token_file).read_text().strip()
-    except OSError:
-        print(
-            f"error: cannot read federated token file {token_file}",
-            file=sys.stderr,
-        )
+    assertion = _resolve_assertion()
+    if assertion is None:
         return None
 
-    if not assertion:
-        print(
-            f"error: federated token file {token_file} is empty",
-            file=sys.stderr,
-        )
-        return None
-
-    token = mint_bearer(client_id, assertion, tenant_id, resource=resource)
+    token = mint_bearer(resolved_client_id, assertion, tenant_id, resource=resource)
     if not token:
         print("error: failed to mint bearer token", file=sys.stderr)
         return None
@@ -78,7 +125,7 @@ def _resolve_token(tenant: str | None, resource: str) -> str | None:
 
 
 def _cmd_mint_token(args: argparse.Namespace) -> int:
-    token = _resolve_token(args.tenant, args.resource)
+    token = _resolve_token(args.tenant, args.resource, args.client_id)
     if token is None:
         return 1
 
@@ -116,7 +163,7 @@ def _cmd_exec(args: argparse.Namespace) -> int:
         print("error: no command given after '--'", file=sys.stderr)
         return 1
 
-    token = _resolve_token(args.tenant, args.resource)
+    token = _resolve_token(args.tenant, args.resource, args.client_id)
     if token is None:
         return 1
 
@@ -144,6 +191,11 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Azure AD tenant ID (defaults to AZURE_TENANT_ID).",
     )
     mint.add_argument(
+        "--client-id",
+        default=None,
+        help="Azure AD application/client ID (defaults to AZURE_CLIENT_ID).",
+    )
+    mint.add_argument(
         "--resource",
         default=C.RESOURCE_ID,
         help="Resource ID to scope the token to (defaults to Azure DevOps).",
@@ -162,6 +214,11 @@ def _build_parser() -> argparse.ArgumentParser:
         "--tenant",
         default=None,
         help="Azure AD tenant ID (defaults to AZURE_TENANT_ID).",
+    )
+    exec_parser.add_argument(
+        "--client-id",
+        default=None,
+        help="Azure AD application/client ID (defaults to AZURE_CLIENT_ID).",
     )
     exec_parser.add_argument(
         "--resource",
