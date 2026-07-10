@@ -271,9 +271,11 @@ You can also use plain `pip install artifacts-keyring-nofuss`, which places
 
 #### GitHub Actions (composite action — most convenient)
 
-This repository ships a composite action that mints the token via the ephemeral
-`uvx` form, masks it, and exposes it as both a step output and the
-`ARTIFACTS_KEYRING_NOFUSS_TOKEN` environment variable for later steps:
+This repository ships a composite action that mints the token (pure-Python, no
+`uv` and no Azure CLI required), masks it, and exposes it as step outputs: the
+`token` and a ready-to-use `secret-arg` for `docker buildx build`. The token is
+**not** written to `$GITHUB_ENV`, so it stays scoped to the build step that
+references it:
 
 ```yaml
 # .github/workflows/build.yml
@@ -286,9 +288,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: astral-sh/setup-uv@v6
-
       - name: Mint feed token
+        id: mint
         uses: microsoft/artifacts-keyring-nofuss@v1
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
@@ -296,22 +297,27 @@ jobs:
         # resource is optional (defaults to the Azure DevOps resource)
 
       - name: Build image
+        env:
+          # scope the token to this step only (not the whole job)
+          ARTIFACTS_KEYRING_NOFUSS_TOKEN: ${{ steps.mint.outputs.token }}
         run: |
           DOCKER_BUILDKIT=1 docker buildx build \
-            --secret id=ARTIFACTS_KEYRING_NOFUSS_TOKEN,env=ARTIFACTS_KEYRING_NOFUSS_TOKEN \
+            ${{ steps.mint.outputs.secret-arg }} \
             -t myorg/my-image .
 ```
 
 The action fetches the GitHub OIDC token itself, so `azure/login` is not
 required — you only need `id-token: write` plus the federated identity's
-`client-id` and `tenant`. Add `azure/login` only if other steps need an
-authenticated `az`; when it runs first, its exported `AZURE_CLIENT_ID` /
-`AZURE_TENANT_ID` are picked up automatically and the `with:` inputs can be
-omitted.
+`client-id` and `tenant`. It installs its own checked-out copy of the package,
+so the CLI version always matches the action ref (no `setup-uv`, no PyPI or
+branch pinning). Add `azure/login` only if other steps need an authenticated
+`az`; when it runs first, its exported `AZURE_CLIENT_ID` / `AZURE_TENANT_ID` are
+picked up automatically and the `with:` inputs can be omitted.
 
 #### GitHub Actions (manual step)
 
-If you'd rather mint the token inline:
+If you'd rather mint the token inline (this form uses `uvx`, so it needs `uv` on
+the runner):
 
 ```yaml
       - uses: astral-sh/setup-uv@v6
@@ -327,7 +333,10 @@ If you'd rather mint the token inline:
 ```
 
 Always run `::add-mask::` on the minted token so it is redacted from logs (the
-composite action does this for you).
+composite action does this for you). Note the composite action above is
+output-only and does **not** write `$GITHUB_ENV`; this manual form does, which
+exposes the token to every later step in the job — prefer the composite action's
+scoped `env:` pattern unless you specifically need the job-wide value.
 
 The Dockerfile consumes the secret exactly as in the BuildKit example above:
 
