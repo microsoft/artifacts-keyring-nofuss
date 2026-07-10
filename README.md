@@ -19,13 +19,16 @@ no-fuss, pure-Python implementation — no .NET required.
 
 | Page | What's inside |
 |------|---------------|
-| [Home / Quickstart](https://microsoft.github.io/artifacts-keyring-nofuss/) | Install and first run. |
+| [Home](https://microsoft.github.io/artifacts-keyring-nofuss/) | Install and a scenario picker. |
+| [Local development](https://microsoft.github.io/artifacts-keyring-nofuss/local-dev/) | Install packages locally with an `az login`. |
+| [pip &amp; uv setup](https://microsoft.github.io/artifacts-keyring-nofuss/pip-uv/) | Turn on the keyring provider once. |
+| [GitHub Actions](https://microsoft.github.io/artifacts-keyring-nofuss/github-actions/) | OIDC installs and the Docker composite action. |
+| [Docker builds](https://microsoft.github.io/artifacts-keyring-nofuss/docker/) | BuildKit secrets and minting a token without `az`. |
+| [GitHub Codespaces](https://microsoft.github.io/artifacts-keyring-nofuss/codespaces/) | The `artifacts-helper` devcontainer feature. |
+| [Managed identity &amp; service principals](https://microsoft.github.io/artifacts-keyring-nofuss/identity/) | MI, service principals, and workload identity. |
+| [Pre-minted tokens](https://microsoft.github.io/artifacts-keyring-nofuss/ci-token/) | Supply a bearer token via env var or file. |
 | [How it works](https://microsoft.github.io/artifacts-keyring-nofuss/concepts/) | Auth flows, priority order, security model. |
-| [Configuration](https://microsoft.github.io/artifacts-keyring-nofuss/configuration/) | Flows, managed identity, service principals, token env vars/files. |
-| [Docker](https://microsoft.github.io/artifacts-keyring-nofuss/docker/) | BuildKit secrets and minting a token without `az`. |
-| [GitHub Actions](https://microsoft.github.io/artifacts-keyring-nofuss/github-actions/) | Workload Identity Federation and the composite action. |
-| [Tool integration](https://microsoft.github.io/artifacts-keyring-nofuss/tool-integration/) | pip, uv, and GitHub Codespaces. |
-| [Reference](https://microsoft.github.io/artifacts-keyring-nofuss/reference/) | Supported feed URLs and troubleshooting. |
+| [Reference](https://microsoft.github.io/artifacts-keyring-nofuss/reference/) | Install options, CLI, env vars, feed URLs, troubleshooting. |
 
 ## Quickstart
 

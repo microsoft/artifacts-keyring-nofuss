@@ -1,21 +1,40 @@
 # GitHub Actions
 
-## Workload Identity Federation (OIDC)
+## Install private packages in a job
 
-On a GitHub Actions job with `permissions: id-token: write`, the workload
-identity provider mints a bearer token directly from the GitHub OIDC endpoint —
-no Azure CLI and no federated token file required. It only needs `AZURE_CLIENT_ID`
-(and `AZURE_TENANT_ID`, or the tenant discovered from the feed URL), so it works
-whether or not `azure/login@v2` ran.
+**When:** a workflow step runs `pip`/`uv install` from your feed.
 
-!!! note
-    `azure/login@v2` on GitHub-hosted runners authenticates the Azure CLI but
-    does **not** write an `AZURE_FEDERATED_TOKEN_FILE`; the GitHub OIDC path
-    above is what makes az-free minting work on those runners.
+Use OIDC — no `az`, no token marshalling. Give the job `id-token: write` and set
+`AZURE_CLIENT_ID` (+ `AZURE_TENANT_ID`) for the federated identity:
+
+```yaml
+jobs:
+  build:
+    permissions:
+      id-token: write    # required for OIDC
+      contents: read
+    runs-on: ubuntu-latest
+    env:
+      AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+      AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+
+      - run: uv tool install keyring --with artifacts-keyring-nofuss
+
+      - name: Install private package
+        run: |
+          uv pip install my-package \
+            --index-url https://__token__@pkgs.dev.azure.com/{org}/_packaging/{feed}/pypi/simple/
+```
+
+The workload-identity flow mints the token straight from the GitHub OIDC
+endpoint — it works whether or not `azure/login` ran.
 
 ??? note "The same with official `artifacts-keyring`"
     There's no OIDC path, so after `azure/login@v2` you mint a token and marshal
-    it into the JSON yourself:
+    it into per-endpoint JSON yourself:
 
     ```yaml
       - uses: azure/login@v2
@@ -23,35 +42,29 @@ whether or not `azure/login@v2` ran.
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           allow-no-subscriptions: true
-
-      - name: Configure feed credentials
-        run: |
+      - run: |
           TOKEN=$(az account get-access-token \
             --resource 499b84ac-1321-427f-aa17-267ca6975798 \
             --query accessToken -o tsv)
           echo "VSS_NUGET_EXTERNAL_FEED_ENDPOINTS={\"endpointCredentials\":[{\"endpoint\":\"https://pkgs.dev.azure.com/{org}/_packaging/{feed}/pypi/simple/\",\"username\":\"AzureDevOps\",\"password\":\"$TOKEN\"}]}" >> "$GITHUB_ENV"
     ```
 
-For Docker builds, the OIDC material lives on the runner and can't reach the
-isolated build, so you mint a feed token on the runner and pass it in as a
-BuildKit secret. The approaches below do exactly that; see
-[Minting a token without `az`](docker.md#minting-a-token-without-az-ci-docker-builds)
-for the background.
+## Build a Docker image in a job
 
-## Composite action (most convenient)
+**When:** a workflow builds an image that pulls private packages. The OIDC
+material lives on the runner and can't reach the isolated build, so mint a token
+on the runner and pass it in as a BuildKit secret.
 
-This repository ships a composite action that mints the token (pure-Python, no
-`uv` and no Azure CLI required), masks it, and exposes it as step outputs: the
-`token` and a ready-to-use `secret-arg` for `docker buildx build`. The token is
-**not** written to `$GITHUB_ENV`, so it stays scoped to the build step that
-references it:
+Use the bundled composite action — pure-Python, no `uv` and no Azure CLI. It
+masks the token and exposes it as step outputs (`token` and a ready-to-splice
+`secret-arg`); the token is **not** written to `$GITHUB_ENV`, so it stays scoped
+to the build step:
 
 ```yaml
-# .github/workflows/build.yml
 jobs:
   build:
     permissions:
-      id-token: write   # required for OIDC
+      id-token: write
       contents: read
     runs-on: ubuntu-latest
     steps:
@@ -63,11 +76,9 @@ jobs:
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
           tenant: ${{ secrets.AZURE_TENANT_ID }}
-        # resource is optional (defaults to the Azure DevOps resource)
 
       - name: Build image
         env:
-          # scope the token to this step only (not the whole job)
           ARTIFACTS_KEYRING_NOFUSS_TOKEN: ${{ steps.mint.outputs.token }}
         run: |
           DOCKER_BUILDKIT=1 docker buildx build \
@@ -75,15 +86,12 @@ jobs:
             -t myorg/my-image .
 ```
 
-The action fetches the GitHub OIDC token itself, so `azure/login` is not
-required — you only need `id-token: write` plus the federated identity's
-`client-id` and `tenant`. It installs its own checked-out copy of the package,
-so the CLI version always matches the action ref (no `setup-uv`, no PyPI or
-branch pinning). Add `azure/login` only if other steps need an authenticated
-`az`; when it runs first, its exported `AZURE_CLIENT_ID` / `AZURE_TENANT_ID` are
-picked up automatically and the `with:` inputs can be omitted.
+See [Docker builds](docker.md) for the matching `Dockerfile`. The action fetches
+the OIDC token itself, so `azure/login` is not required — add it only if other
+steps need an authenticated `az` (its exported `AZURE_CLIENT_ID` /
+`AZURE_TENANT_ID` are then picked up and the `with:` inputs can be omitted).
 
-### Inputs and outputs
+### Action inputs &amp; outputs
 
 | Input | Required | Description |
 |-------|----------|-------------|
@@ -96,14 +104,12 @@ picked up automatically and the `with:` inputs can be omitted.
 | `token` | The minted bearer token (masked in logs). |
 | `secret-arg` | A ready-to-splice `--secret id=…,env=…` argument for `docker buildx build`. |
 
-## Manual step
+### Prefer to mint inline?
 
-If you'd rather mint the token inline (this form uses `uvx`, so it needs `uv` on
-the runner):
+If you'd rather not use the action (needs `uv` on the runner):
 
 ```yaml
       - uses: astral-sh/setup-uv@v6
-
       - name: Mint feed token
         env:
           AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
@@ -111,8 +117,6 @@ the runner):
         run: |
           TOKEN=$(uvx --from artifacts-keyring-nofuss ak-nofuss mint-token)
           echo "::add-mask::$TOKEN"
-          # Heredoc form so an unexpected character in the value can't inject
-          # extra environment entries.
           {
             echo "ARTIFACTS_KEYRING_NOFUSS_TOKEN<<EOF"
             echo "$TOKEN"
@@ -120,18 +124,6 @@ the runner):
           } >> "$GITHUB_ENV"
 ```
 
-Always run `::add-mask::` on the minted token so it is redacted from logs (the
-composite action does this for you). Note the composite action above is
-output-only and does **not** write `$GITHUB_ENV`; this manual form does, which
-exposes the token to every later step in the job — prefer the composite action's
-scoped `env:` pattern unless you specifically need the job-wide value.
-
-The Dockerfile consumes the secret exactly as in the
-[BuildKit example](docker.md#buildkit-secrets-zero-config):
-
-```dockerfile
-RUN --mount=type=secret,id=ARTIFACTS_KEYRING_NOFUSS_TOKEN \
-    PIP_KEYRING_PROVIDER=import pip install \
-    --index-url https://__token__@pkgs.dev.azure.com/{org}/_packaging/<feed>/pypi/simple/ \
-    my-private-package
-```
+Always `::add-mask::` the token (the action does this for you). This form writes
+`$GITHUB_ENV`, exposing the token to every later step in the job — prefer the
+action's scoped `env:` pattern unless you need the job-wide value.

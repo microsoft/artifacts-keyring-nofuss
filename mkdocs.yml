@@ -36,9 +36,13 @@ markdown_extensions:
 
 nav:
   - Home: index.md
+  - Scenarios:
+      - Local development: local-dev.md
+      - pip & uv setup: pip-uv.md
+      - GitHub Actions: github-actions.md
+      - Docker builds: docker.md
+      - GitHub Codespaces: codespaces.md
+      - Managed identity & service principals: identity.md
+      - Pre-minted tokens: ci-token.md
   - How it works: concepts.md
-  - Configuration: configuration.md
-  - Docker: docker.md
-  - GitHub Actions: github-actions.md
-  - Tool integration: tool-integration.md
   - Reference: reference.md
