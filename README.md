@@ -86,7 +86,7 @@ Artifacts feed, this backend:
 | 1 | **Environment variable** | Reads a bearer token from `ARTIFACTS_KEYRING_NOFUSS_TOKEN` (or `VSS_NUGET_ACCESSTOKEN` as fallback). Also supports `ARTIFACTS_KEYRING_NOFUSS_TOKEN_FILE` pointing to a file, and auto-detects Docker BuildKit secrets at `/run/secrets/`. Best for CI and Docker builds. |
 | 2 | **Azure CLI** | Runs `az account get-access-token`. Most common for local dev. |
 | 3 | **ADO auth helper** | Calls `~/ado-auth-helper` (created by the `ado-codespaces-auth` VS Code extension). Enables seamless auth in GitHub Codespaces. |
-| 4 | **Workload Identity** | Exchanges a federated token via `AZURE_CLIENT_ID` + `AZURE_FEDERATED_TOKEN_FILE` + `AZURE_TENANT_ID`. Best for GitHub Actions with `azure/login@v2`. |
+| 4 | **Workload Identity** | Exchanges a federated OIDC assertion via `AZURE_CLIENT_ID` (+ optional `AZURE_TENANT_ID`). The assertion comes from `AZURE_FEDERATED_TOKEN_FILE` when set, or — on GitHub Actions jobs with `permissions: id-token: write` — is fetched directly from the GitHub OIDC endpoint (no `az`, no token file needed). Best for GitHub Actions. |
 | 5 | **Azure Identity** | Uses `DefaultAzureCredential` from `azure-identity`. Handles managed identities (system + user-assigned), service principals (secret/cert), workload identity federation, and more. |
 
 ## Configuration
@@ -193,10 +193,175 @@ that `RUN` step and is never baked into the image.
 
 ### Workload Identity Federation (GitHub Actions OIDC)
 
-When using `azure/login@v2` in GitHub Actions, the action automatically sets
-`AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, and `AZURE_FEDERATED_TOKEN_FILE`.
-The workload identity provider detects these and exchanges the federated token
-for a bearer — no extra configuration needed.
+On a GitHub Actions job with `permissions: id-token: write`, the workload
+identity provider mints a bearer token directly from the GitHub OIDC endpoint —
+no Azure CLI and no federated token file required. It only needs `AZURE_CLIENT_ID`
+(and `AZURE_TENANT_ID`, or the tenant discovered from the feed URL). This works
+whether or not `azure/login@v2` ran.
+
+If an `AZURE_FEDERATED_TOKEN_FILE` is present (the AKS workload-identity
+convention), the provider reads the assertion from that file instead. The OIDC
+audience defaults to `api://AzureADTokenExchange` and can be overridden via
+`AZURE_FEDERATED_TOKEN_AUDIENCE` for sovereign clouds.
+
+> Note: `azure/login@v2` on GitHub-hosted runners authenticates the Azure CLI
+> but does **not** write an `AZURE_FEDERATED_TOKEN_FILE`; the GitHub OIDC path
+> above is what makes az-free minting work on those runners.
+
+### Minting a token without `az` (CI / Docker builds)
+
+Inside `docker buildx build`, this backend can't perform Workload Identity
+Federation itself: the OIDC material (`AZURE_CLIENT_ID`,
+`AZURE_FEDERATED_TOKEN_FILE`) lives on the CI runner, not inside the isolated
+build. The standard workaround is to **mint a feed token on the runner** and
+inject it into the build as a BuildKit secret, where the env_var provider
+consumes it.
+
+That minting is often done with `az account get-access-token`, which is
+heavyweight and can hang. This package ships a hang-proof, pure-Python
+alternative — the `ak-nofuss mint-token` command — that reuses the same
+federated-token exchange with a bounded timeout and retry/backoff. It needs
+`AZURE_CLIENT_ID` (and `AZURE_TENANT_ID`, or `--tenant`), and obtains the OIDC
+assertion either from `AZURE_FEDERATED_TOKEN_FILE` or, on a GitHub Actions job
+with `permissions: id-token: write`, directly from the GitHub OIDC endpoint. It
+prints the bearer token to stdout. Because it can fetch the OIDC token itself,
+it does not require `az` or `azure/login` on the runner.
+
+#### Installing the CLI
+
+The executable is named `ak-nofuss` (distinct from the `artifacts-keyring-nofuss`
+package name), so how you run it depends on your environment:
+
+- **Interactive / long-lived runner** — install `keyring` as a
+  [`uv` tool](https://docs.astral.sh/uv/) and expose *our* executable on `PATH`
+  alongside it:
+
+  ```bash
+  uv tool install keyring --with-executables-from artifacts-keyring-nofuss
+  ```
+
+  `--with-executables-from` (not `--with`) is what puts `ak-nofuss` on `PATH`;
+  `--with` would install the package into the tool environment but would not
+  expose its console script. After this, `keyring` and `ak-nofuss` are both
+  available directly.
+
+- **Ephemeral CI (no install, nothing added to `PATH`)** — run it on demand
+  with `uvx`. The `--from` is required because the executable name differs from
+  the package name:
+
+  ```bash
+  uvx --from artifacts-keyring-nofuss ak-nofuss mint-token
+  ```
+
+- **Using pipx instead of uv** — inject the package into a `keyring` install and
+  expose *our* executable with `--include-apps` (pipx's equivalent of uv's
+  `--with-executables-from`):
+
+  ```bash
+  pipx inject --include-apps keyring artifacts-keyring-nofuss
+  ```
+
+  Plain `pipx inject keyring artifacts-keyring-nofuss` installs the package but
+  does **not** put `ak-nofuss` on `PATH` — `--include-apps` is required.
+  Alternatively, `pipx install artifacts-keyring-nofuss` installs `ak-nofuss`
+  standalone.
+
+You can also use plain `pip install artifacts-keyring-nofuss`, which places
+`ak-nofuss` on `PATH` in the active environment.
+
+#### GitHub Actions (composite action — most convenient)
+
+This repository ships a composite action that mints the token (pure-Python, no
+`uv` and no Azure CLI required), masks it, and exposes it as step outputs: the
+`token` and a ready-to-use `secret-arg` for `docker buildx build`. The token is
+**not** written to `$GITHUB_ENV`, so it stays scoped to the build step that
+references it:
+
+```yaml
+# .github/workflows/build.yml
+jobs:
+  build:
+    permissions:
+      id-token: write   # required for OIDC
+      contents: read
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Mint feed token
+        id: mint
+        uses: microsoft/artifacts-keyring-nofuss@v1
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant: ${{ secrets.AZURE_TENANT_ID }}
+        # resource is optional (defaults to the Azure DevOps resource)
+
+      - name: Build image
+        env:
+          # scope the token to this step only (not the whole job)
+          ARTIFACTS_KEYRING_NOFUSS_TOKEN: ${{ steps.mint.outputs.token }}
+        run: |
+          DOCKER_BUILDKIT=1 docker buildx build \
+            ${{ steps.mint.outputs.secret-arg }} \
+            -t myorg/my-image .
+```
+
+The action fetches the GitHub OIDC token itself, so `azure/login` is not
+required — you only need `id-token: write` plus the federated identity's
+`client-id` and `tenant`. It installs its own checked-out copy of the package,
+so the CLI version always matches the action ref (no `setup-uv`, no PyPI or
+branch pinning). Add `azure/login` only if other steps need an authenticated
+`az`; when it runs first, its exported `AZURE_CLIENT_ID` / `AZURE_TENANT_ID` are
+picked up automatically and the `with:` inputs can be omitted.
+
+#### GitHub Actions (manual step)
+
+If you'd rather mint the token inline (this form uses `uvx`, so it needs `uv` on
+the runner):
+
+```yaml
+      - uses: astral-sh/setup-uv@v6
+
+      - name: Mint feed token
+        env:
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+        run: |
+          TOKEN=$(uvx --from artifacts-keyring-nofuss ak-nofuss mint-token)
+          echo "::add-mask::$TOKEN"
+          echo "ARTIFACTS_KEYRING_NOFUSS_TOKEN=$TOKEN" >> "$GITHUB_ENV"
+```
+
+Always run `::add-mask::` on the minted token so it is redacted from logs (the
+composite action does this for you). Note the composite action above is
+output-only and does **not** write `$GITHUB_ENV`; this manual form does, which
+exposes the token to every later step in the job — prefer the composite action's
+scoped `env:` pattern unless you specifically need the job-wide value.
+
+The Dockerfile consumes the secret exactly as in the BuildKit example above:
+
+```dockerfile
+RUN --mount=type=secret,id=ARTIFACTS_KEYRING_NOFUSS_TOKEN \
+    PIP_KEYRING_PROVIDER=import pip install \
+    --index-url https://__token__@pkgs.dev.azure.com/{org}/_packaging/<feed>/pypi/simple/ \
+    my-private-package
+```
+
+Prefer keeping the token out of your shell environment? Use the `exec` form,
+which mints the token, sets `ARTIFACTS_KEYRING_NOFUSS_TOKEN` in the child
+environment, and runs the wrapped command:
+
+```bash
+ak-nofuss exec -- \
+  docker buildx build \
+    --secret id=ARTIFACTS_KEYRING_NOFUSS_TOKEN,env=ARTIFACTS_KEYRING_NOFUSS_TOKEN \
+    -t myorg/my-image .
+```
+
+You can also write the token straight to a file (created with `0600`
+permissions) with `--output-file PATH`, and override the tenant or target
+resource with `--tenant` / `--resource`. The same command works via
+`python -m artifacts_keyring_nofuss mint-token`.
 
 ### GitHub Codespaces
 

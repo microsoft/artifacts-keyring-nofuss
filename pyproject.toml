@@ -43,6 +43,9 @@ Issues = "https://github.com/microsoft/artifacts-keyring-nofuss/issues"
 [project.entry-points."keyring.backends"]
 artifacts-keyring-nofuss = "artifacts_keyring_nofuss:ArtifactsKeyringBackend"
 
+[project.scripts]
+ak-nofuss = "artifacts_keyring_nofuss._cli:main"
+
 [project.optional-dependencies]
 dev = [
     "mypy>=1.10",
@@ -71,7 +74,8 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["E402"]  # module-level import not at top of file (after logging setup)
-"tests/*" = ["S101", "S105", "INP001", "SLF001", "ARG002"]  # assert, test credentials, namespace package, private access, and unused mock args are fine in tests
+"_cli.py" = ["T201"]  # print is the CLI's normal output mechanism
+"tests/*" = ["S101", "S105", "INP001", "SLF001", "ARG002", "ARG005"]  # assert, test credentials, namespace package, private access, and unused mock args are fine in tests
 
 [tool.mypy]
 strict = true
