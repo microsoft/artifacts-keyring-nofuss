@@ -68,9 +68,12 @@ consumes it.
 That minting is often done with `az account get-access-token`, which is
 heavyweight and can hang. This package ships a hang-proof, pure-Python
 alternative — the `ak-nofuss mint-token` command — that reuses the same
-federated-token exchange with a bounded timeout and retry/backoff. It reads
-`AZURE_CLIENT_ID` and `AZURE_FEDERATED_TOKEN_FILE` (set by `azure/login@v2`)
-and prints the bearer token to stdout.
+federated-token exchange with a bounded timeout and retry/backoff. It needs
+`AZURE_CLIENT_ID` (and `AZURE_TENANT_ID`, or `--tenant`), and obtains the OIDC
+assertion either from `AZURE_FEDERATED_TOKEN_FILE` or, on a GitHub Actions job
+with `permissions: id-token: write`, directly from the GitHub OIDC endpoint. It
+prints the bearer token to stdout. Because it can fetch the OIDC token itself,
+it does not require `az` or `azure/login` on the runner.
 
 ??? note "The same with official `artifacts-keyring`"
     There's no minting helper, so you shell out to the Azure CLI on the runner

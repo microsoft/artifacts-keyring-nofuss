@@ -1,0 +1,95 @@
+name: Mint Azure DevOps feed token
+description: >-
+  Mint a short-lived Azure DevOps Artifacts feed bearer token on the runner
+  (pure-Python, no Azure CLI, no uv) and expose it as step outputs: the masked
+  token and a ready-to-use BuildKit `--secret` argument. The token is not written
+  to the job environment, so it stays scoped to the steps that reference it.
+branding:
+  icon: key
+  color: blue
+
+inputs:
+  client-id:
+    description: >-
+      Azure AD (Entra) application/client ID of the federated identity. Defaults
+      to the AZURE_CLIENT_ID environment variable. Required unless AZURE_CLIENT_ID
+      is already set in the environment.
+    required: false
+    default: ""
+  tenant:
+    description: >-
+      Azure AD tenant ID. Defaults to the AZURE_TENANT_ID environment variable.
+    required: false
+    default: ""
+  resource:
+    description: >-
+      Resource ID to scope the token to. Defaults to the Azure DevOps resource
+      used by the package.
+    required: false
+    default: ""
+
+outputs:
+  token:
+    description: The minted bearer token (also masked in logs).
+    value: ${{ steps.mint.outputs.token }}
+  secret-arg:
+    description: >-
+      A ready-to-use `docker buildx build` argument that forwards the token as a
+      BuildKit secret: `--secret id=ARTIFACTS_KEYRING_NOFUSS_TOKEN,env=ARTIFACTS_KEYRING_NOFUSS_TOKEN`.
+      Splice it into the build command and set ARTIFACTS_KEYRING_NOFUSS_TOKEN (from
+      the `token` output) as a scoped `env:` on that build step.
+    value: ${{ steps.mint.outputs.secret-arg }}
+
+runs:
+  using: composite
+  steps:
+    - name: Mint feed token
+      id: mint
+      shell: bash
+      env:
+        AK_NOFUSS_CLIENT_ID: ${{ inputs.client-id }}
+        AK_NOFUSS_TENANT: ${{ inputs.tenant }}
+        AK_NOFUSS_RESOURCE: ${{ inputs.resource }}
+      run: |
+        set -euo pipefail
+
+        args=(mint-token)
+        if [ -n "${AK_NOFUSS_CLIENT_ID}" ]; then
+          args+=(--client-id "${AK_NOFUSS_CLIENT_ID}")
+        fi
+        if [ -n "${AK_NOFUSS_TENANT}" ]; then
+          args+=(--tenant "${AK_NOFUSS_TENANT}")
+        fi
+        if [ -n "${AK_NOFUSS_RESOURCE}" ]; then
+          args+=(--resource "${AK_NOFUSS_RESOURCE}")
+        fi
+
+        # Install this action's own checked-out copy of the package into an
+        # ephemeral venv, so the CLI version always matches the action ref (no uv,
+        # no PyPI dependency, no branch pinning). SETUPTOOLS_SCM_PRETEND_VERSION
+        # guards against a shallow/tagless action checkout where setuptools-scm
+        # cannot derive a version.
+        venv="$(mktemp -d)/venv"
+        python3 -m venv "${venv}"
+        SETUPTOOLS_SCM_PRETEND_VERSION="0+action" \
+          "${venv}/bin/pip" install --quiet --disable-pip-version-check \
+          "${GITHUB_ACTION_PATH}"
+
+        token="$("${venv}/bin/ak-nofuss" "${args[@]}")"
+
+        echo "::add-mask::${token}"
+
+        # Output-only: the token is exposed solely as a step output (never written
+        # to $GITHUB_ENV), so it stays scoped to steps that explicitly reference it.
+        # Use the heredoc form so an unexpected newline or special character in the
+        # value cannot inject additional entries.
+        delim="AKN_$(openssl rand -hex 16 2>/dev/null || echo RANDOM_$RANDOM$RANDOM)"
+        {
+          echo "token<<${delim}"
+          echo "${token}"
+          echo "${delim}"
+          # A ready-to-splice buildx secret arg. Carries no token value; the id is
+          # fixed so the container-side EnvVarProvider auto-reads
+          # /run/secrets/ARTIFACTS_KEYRING_NOFUSS_TOKEN.
+          echo "secret-arg=--secret id=ARTIFACTS_KEYRING_NOFUSS_TOKEN,env=ARTIFACTS_KEYRING_NOFUSS_TOKEN"
+        } >> "${GITHUB_OUTPUT}"

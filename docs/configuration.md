@@ -103,10 +103,21 @@ export ARTIFACTS_KEYRING_NOFUSS_TOKEN_FILE=/run/secrets/my_token
 
 ## Workload Identity Federation (GitHub Actions OIDC)
 
-When using `azure/login@v2` in GitHub Actions, the action automatically sets
-`AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, and `AZURE_FEDERATED_TOKEN_FILE`.
-The workload identity provider detects these and exchanges the federated token
-for a bearer — no extra configuration needed.
+On a GitHub Actions job with `permissions: id-token: write`, the workload
+identity provider mints a bearer token directly from the GitHub OIDC endpoint —
+no Azure CLI and no federated token file required. It only needs `AZURE_CLIENT_ID`
+(and `AZURE_TENANT_ID`, or the tenant discovered from the feed URL). This works
+whether or not `azure/login@v2` ran.
+
+If an `AZURE_FEDERATED_TOKEN_FILE` is present (the AKS workload-identity
+convention), the provider reads the assertion from that file instead. The OIDC
+audience defaults to `api://AzureADTokenExchange` and can be overridden via
+`AZURE_FEDERATED_TOKEN_AUDIENCE` for sovereign clouds.
+
+!!! note
+    `azure/login@v2` on GitHub-hosted runners authenticates the Azure CLI but
+    does **not** write an `AZURE_FEDERATED_TOKEN_FILE`; the GitHub OIDC path
+    above is what makes az-free minting work on those runners.
 
 See [GitHub Actions](github-actions.md) for full CI examples, including the
 composite action.

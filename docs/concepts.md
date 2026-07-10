@@ -34,7 +34,7 @@ Artifacts feed, this backend:
 | 1 | **Environment variable** | Reads a bearer token from `ARTIFACTS_KEYRING_NOFUSS_TOKEN` (or `VSS_NUGET_ACCESSTOKEN` as fallback). Also supports `ARTIFACTS_KEYRING_NOFUSS_TOKEN_FILE` pointing to a file, and auto-detects Docker BuildKit secrets at `/run/secrets/`. Best for CI and Docker builds. |
 | 2 | **Azure CLI** | Runs `az account get-access-token`. Most common for local dev. |
 | 3 | **ADO auth helper** | Calls `~/ado-auth-helper` (created by the `ado-codespaces-auth` VS Code extension). Enables seamless auth in GitHub Codespaces. |
-| 4 | **Workload Identity** | Exchanges a federated token via `AZURE_CLIENT_ID` + `AZURE_FEDERATED_TOKEN_FILE` + `AZURE_TENANT_ID`. Best for GitHub Actions with `azure/login@v2`. |
+| 4 | **Workload Identity** | Exchanges a federated OIDC assertion via `AZURE_CLIENT_ID` (+ optional `AZURE_TENANT_ID`). The assertion comes from `AZURE_FEDERATED_TOKEN_FILE` when set, or — on GitHub Actions jobs with `permissions: id-token: write` — is fetched directly from the GitHub OIDC endpoint (no `az`, no token file needed). Best for GitHub Actions. |
 | 5 | **Azure Identity** | Uses `DefaultAzureCredential` from `azure-identity`. Handles managed identities (system + user-assigned), service principals (secret/cert), workload identity federation, and more. |
 
 By default, providers are tried in the order above. To force a specific one,
