@@ -7,6 +7,7 @@ import json
 import subprocess
 from typing import TYPE_CHECKING, Any
 from unittest import mock
+from urllib.parse import urlparse
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -616,7 +617,7 @@ class TestTokenRejectedRetry:
         # The GET request should NOT contain __token__
         called_url = mock_get.call_args[0][1]
         assert "__token__" not in called_url
-        assert "pkgs.dev.azure.com" in called_url
+        assert urlparse(called_url).hostname == "pkgs.dev.azure.com"
 
 
 # ---------------------------------------------------------------------------
