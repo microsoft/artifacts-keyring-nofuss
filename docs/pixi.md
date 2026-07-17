@@ -41,6 +41,7 @@ username, so include `__token__@`. Configure the feed as an index and depend on
 packages **by name**:
 
 ```toml
+# pixi.toml — use [tool.pixi.pypi-options] / [tool.pixi.pypi-dependencies] in pyproject.toml
 [pypi-options]
 keyring-provider = "subprocess"
 # Use index-url when the feed has public PyPI configured as an upstream source;
