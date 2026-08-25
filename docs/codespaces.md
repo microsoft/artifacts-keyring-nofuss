@@ -12,17 +12,24 @@ This complete example uses the standard Python dev-container image, installs the
 Azure CLI with its official feature, and installs the backend as an isolated
 `pipx` tool:
 
-```json
+```jsonc
 {
   "image": "mcr.microsoft.com/devcontainers/python:3.12-bookworm",
   "features": {
     "ghcr.io/devcontainers/features/azure-cli:1": {}
   },
+  "mounts": [
+    // Shares all host Azure credentials; remove on shared/untrusted containers
+    // or if host/container permissions or token-cache formats are incompatible.
+    "source=${localEnv:HOME}/.azure,target=/home/vscode/.azure,type=bind"
+  ],
+  // Omit when keyring and artifacts-keyring-nofuss are already in the image.
   "postCreateCommand": "pipx install keyring && pipx inject keyring artifacts-keyring-nofuss"
 }
 ```
 
-After creating the container, sign in from its terminal:
+The mount reuses the host's existing Azure CLI login. If you remove it, sign in
+from the container's terminal instead:
 
 ```bash
 az login
@@ -48,16 +55,8 @@ Then pip and uv work exactly as they do on the host:
 If the image already contains Python and `pipx`, keep your existing `image` and
 add only the feature and `postCreateCommand`. If it does not, add the
 [`python` feature](https://github.com/devcontainers/features/tree/main/src/python)
-as well. If `keyring` and `artifacts-keyring-nofuss` are already installed in
-the image, omit `postCreateCommand` too.
-
-!!! tip "Avoid signing in after every rebuild"
-    Mounting the host's `~/.azure` directory into a personal, local Linux
-    container can reuse the host login, but it also gives the container access
-    to all of those developer credentials and can cause permission or
-    cross-platform token-cache problems. Signing in inside the container is the
-    safer, portable default. For unattended containers, use a
-    [service principal](identity.md) instead.
+as well. For unattended containers, use a [service principal](identity.md)
+instead of mounting developer credentials.
 
 ## GitHub Codespaces
 
@@ -66,12 +65,13 @@ Codespaces can authenticate without a separate `az login`. Add the
 and install this backend (or omit `postCreateCommand` when the image already
 contains it):
 
-```json
+```jsonc
 {
   "image": "mcr.microsoft.com/devcontainers/python:3.12-bookworm",
   "features": {
     "ghcr.io/microsoft/codespace-features/artifacts-helper:3": {}
   },
+  // Omit when keyring and artifacts-keyring-nofuss are already in the image.
   "postCreateCommand": "pipx install keyring && pipx inject keyring artifacts-keyring-nofuss"
 }
 ```
