@@ -53,7 +53,7 @@ uv pip install my-package \
 ```
 
 See the [documentation site](https://microsoft.github.io/artifacts-keyring-nofuss/)
-for CI, Docker, dev-container, service-principal, and Codespaces setups.
+for CI, Docker, dev containers, service principals, and Codespaces setups.
 
 ## Development
 
