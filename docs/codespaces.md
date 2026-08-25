@@ -48,7 +48,8 @@ Then pip and uv work exactly as they do on the host:
 If the image already contains Python and `pipx`, keep your existing `image` and
 add only the feature and `postCreateCommand`. If it does not, add the
 [`python` feature](https://github.com/devcontainers/features/tree/main/src/python)
-as well.
+as well. If `keyring` and `artifacts-keyring-nofuss` are already installed in
+the image, omit `postCreateCommand` too.
 
 !!! tip "Avoid signing in after every rebuild"
     Mounting the host's `~/.azure` directory into a personal, local Linux
@@ -62,7 +63,8 @@ as well.
 
 Codespaces can authenticate without a separate `az login`. Add the
 [`artifacts-helper`](https://github.com/microsoft/codespace-features) feature
-and install this backend:
+and install this backend (or omit `postCreateCommand` when the image already
+contains it):
 
 ```json
 {
