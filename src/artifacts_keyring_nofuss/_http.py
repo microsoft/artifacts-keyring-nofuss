@@ -9,12 +9,15 @@ re-run would recover from.
 
 from __future__ import annotations
 
+import importlib.metadata
 import logging
 import os
 import random
 import time
 
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 log = logging.getLogger(__name__)
 
@@ -39,6 +42,40 @@ _RETRYABLE_EXCEPTIONS = (requests.ConnectionError, requests.Timeout)
 _MAX_ATTEMPTS_ENV = "ARTIFACTS_KEYRING_NOFUSS_RETRIES"
 
 
+def _user_agent() -> str:
+    """Build a package-specific user agent string."""
+    try:
+        package_version = importlib.metadata.version("artifacts-keyring-nofuss")
+    except importlib.metadata.PackageNotFoundError:
+        package_version = "unknown"
+    return f"artifacts-keyring-nofuss/{package_version}"
+
+
+def _build_retry(attempts: int) -> Retry:
+    retries = max(_MIN_ATTEMPTS, min(_MAX_ATTEMPTS, attempts)) - 1
+    return Retry(
+        total=retries,
+        # Keep connect/read retries in the manual loop so we can explicitly avoid
+        # retrying SSLError while still using urllib3 Retry for status retries.
+        connect=0,
+        read=0,
+        status=retries,
+        backoff_factor=_BASE_DELAY,
+        allowed_methods=None,
+        status_forcelist=RETRYABLE_STATUS,
+        raise_on_status=False,
+    )
+
+
+def _build_session(attempts: int) -> requests.Session:
+    session = requests.Session()
+    session.headers.update({"User-Agent": _user_agent()})
+    adapter = HTTPAdapter(max_retries=_build_retry(attempts))
+    session.mount("https://", adapter)
+    session.mount("http://", adapter)
+    return session
+
+
 def _is_retryable_exception(exc: requests.RequestException) -> bool:
     """Return True if *exc* is a transient network failure worth retrying."""
     # SSLError subclasses ConnectionError but almost always signals a
@@ -61,6 +98,16 @@ def _configured_attempts() -> int:
     return max(_MIN_ATTEMPTS, min(_MAX_ATTEMPTS, value))
 
 
+_SESSION_ATTEMPTS = _configured_attempts()
+_SESSION = _build_session(_SESSION_ATTEMPTS)
+
+
+def _session_for_attempts(attempts: int) -> requests.Session:
+    if attempts == _SESSION_ATTEMPTS:
+        return _SESSION
+    return _build_session(attempts)
+
+
 def _backoff_delay(attempt: int) -> float:
     """Return a jittered exponential backoff delay for a 1-based *attempt*."""
     delay = min(_MAX_DELAY, _BASE_DELAY * (2 ** (attempt - 1)))
@@ -75,10 +122,12 @@ def request(
     max_attempts: int | None = None,
     **kwargs: object,
 ) -> requests.Response:
-    """Perform an HTTP request, retrying transient failures with backoff.
+    """Perform an HTTP request, retrying transient failures.
 
-    Retries on transient connection errors, timeouts, and retryable status
-    codes (:data:`RETRYABLE_STATUS`).  Non-transient failures (invalid URL,
+    Retries transient connection errors and timeouts with jittered backoff.
+    Retryable status codes (:data:`RETRYABLE_STATUS`) are handled by the
+    session's configured :class:`urllib3.util.retry.Retry`. Non-transient
+    failures (invalid URL,
     TLS/SSL misconfiguration, ...) propagate immediately.  The final response is
     returned as-is so the caller can inspect non-retryable statuses (e.g. a
     ``401`` carrying a ``WWW-Authenticate`` header, or a rejected bearer token).
@@ -89,10 +138,12 @@ def request(
     attempts = max_attempts if max_attempts is not None else _configured_attempts()
     attempts = max(_MIN_ATTEMPTS, min(_MAX_ATTEMPTS, attempts))
 
+    session = _session_for_attempts(attempts)
+
     for attempt in range(1, attempts + 1):
         try:
             # Timeout is always supplied by callers via **kwargs.
-            resp = requests.request(method, url, **kwargs)  # type: ignore[arg-type]  # noqa: S113
+            resp = session.request(method, url, **kwargs)  # type: ignore[arg-type]
         except requests.RequestException as exc:
             if not _is_retryable_exception(exc) or attempt >= attempts:
                 raise
@@ -105,20 +156,6 @@ def request(
                 attempts,
                 delay,
                 exc_info=True,
-            )
-            time.sleep(delay)
-            continue
-
-        if resp.status_code in RETRYABLE_STATUS and attempt < attempts:
-            delay = _backoff_delay(attempt)
-            log.debug(
-                "request %s %s returned HTTP %d (attempt %d/%d), retrying in %.2fs",
-                method,
-                url,
-                resp.status_code,
-                attempt,
-                attempts,
-                delay,
             )
             time.sleep(delay)
             continue
