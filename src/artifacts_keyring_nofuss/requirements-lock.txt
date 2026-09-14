@@ -282,9 +282,9 @@ more-itertools==11.1.0 \
     # via
     #   jaraco-classes
     #   jaraco-functools
-msal==1.37.0 \
-    --hash=sha256:1b1672a33ee467c1d70b341bb16cafd51bb3c817147a95b93263794b03971bec \
-    --hash=sha256:dd17e95a7c71bce75e8108113438ba7c4a086b3bcad4f57a8c09b7af3d753c2d
+msal==1.38.0 \
+    --hash=sha256:4f10ff1257bacfd1781f22e85bd2b8d43ad1b490f3b6aafd7906671cadedd464 \
+    --hash=sha256:765b9b98b6aa380ee8b8f1c75636e08863edaf0a953498955bd668650dde5d49
     # via
     #   azure-identity
     #   msal-extensions
