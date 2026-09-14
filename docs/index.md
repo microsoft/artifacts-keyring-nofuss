@@ -28,7 +28,7 @@ uv tool install keyring --with artifacts-keyring-nofuss
 | Point pip or uv at the feed | [pip &amp; uv setup](pip-uv.md) |
 | Install private packages in a GitHub Actions job | [GitHub Actions](github-actions.md) |
 | Build a Docker image that pulls private packages | [Docker builds](docker.md) |
-| Work in a GitHub Codespace | [Codespaces](codespaces.md) |
+| Work in a dev container or GitHub Codespace | [Dev containers &amp; Codespaces](codespaces.md) |
 | Authenticate as a managed identity or service principal | [Managed identity &amp; service principals](identity.md) |
 | Use a bearer token I already have (CI) | [Pre-minted tokens](ci-token.md) |
 

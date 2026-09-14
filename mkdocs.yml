@@ -41,7 +41,7 @@ nav:
       - pip & uv setup: pip-uv.md
       - GitHub Actions: github-actions.md
       - Docker builds: docker.md
-      - GitHub Codespaces: codespaces.md
+      - Dev containers & Codespaces: codespaces.md
       - Managed identity & service principals: identity.md
       - Pre-minted tokens: ci-token.md
   - How it works: concepts.md
