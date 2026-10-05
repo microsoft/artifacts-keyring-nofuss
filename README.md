@@ -22,6 +22,7 @@ no-fuss, pure-Python implementation — no .NET required.
 | [Home](https://microsoft.github.io/artifacts-keyring-nofuss/) | Install and a scenario picker. |
 | [Local development](https://microsoft.github.io/artifacts-keyring-nofuss/local-dev/) | Install packages locally with an `az login`. |
 | [pip &amp; uv setup](https://microsoft.github.io/artifacts-keyring-nofuss/pip-uv/) | Turn on the keyring provider once. |
+| [pixi setup](https://microsoft.github.io/artifacts-keyring-nofuss/pixi/) | Install from a feed with pixi's uv-based resolver. |
 | [GitHub Actions](https://microsoft.github.io/artifacts-keyring-nofuss/github-actions/) | OIDC installs and the Docker composite action. |
 | [Docker builds](https://microsoft.github.io/artifacts-keyring-nofuss/docker/) | BuildKit secrets and minting a token without `az`. |
 | [GitHub Codespaces](https://microsoft.github.io/artifacts-keyring-nofuss/codespaces/) | The `artifacts-helper` devcontainer feature. |
