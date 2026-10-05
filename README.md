@@ -24,7 +24,7 @@ no-fuss, pure-Python implementation — no .NET required.
 | [pip &amp; uv setup](https://microsoft.github.io/artifacts-keyring-nofuss/pip-uv/) | Turn on the keyring provider once. |
 | [GitHub Actions](https://microsoft.github.io/artifacts-keyring-nofuss/github-actions/) | OIDC installs and the Docker composite action. |
 | [Docker builds](https://microsoft.github.io/artifacts-keyring-nofuss/docker/) | BuildKit secrets and minting a token without `az`. |
-| [GitHub Codespaces](https://microsoft.github.io/artifacts-keyring-nofuss/codespaces/) | The `artifacts-helper` devcontainer feature. |
+| [Dev containers &amp; GitHub Codespaces](https://microsoft.github.io/artifacts-keyring-nofuss/codespaces/) | Azure CLI and Codespaces `artifacts-helper` recipes. |
 | [Managed identity &amp; service principals](https://microsoft.github.io/artifacts-keyring-nofuss/identity/) | MI, service principals, and workload identity. |
 | [Pre-minted tokens](https://microsoft.github.io/artifacts-keyring-nofuss/ci-token/) | Supply a bearer token via env var or file. |
 | [How it works](https://microsoft.github.io/artifacts-keyring-nofuss/concepts/) | Auth flows, priority order, security model. |
@@ -53,7 +53,7 @@ uv pip install my-package \
 ```
 
 See the [documentation site](https://microsoft.github.io/artifacts-keyring-nofuss/)
-for CI, Docker, service principal, and Codespaces setups.
+for CI, Docker, dev containers, service principals, and Codespaces setups.
 
 ## Development
 
