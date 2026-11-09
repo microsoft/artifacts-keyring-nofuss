@@ -68,11 +68,26 @@ def _backoff_delay(attempt: int) -> float:
     return random.uniform(0, delay)  # noqa: S311 (not used for security)
 
 
+def response_token(response: requests.Response, field: str) -> str | None:
+    """Extract a non-blank token from a JSON object without logging secrets."""
+    try:
+        payload = response.json()
+    except ValueError:
+        log.debug("token response was not valid JSON")
+        return None
+    value = payload.get(field) if isinstance(payload, dict) else None
+    if not isinstance(value, str) or not value.strip():
+        log.debug("token response did not contain a non-blank %s", field)
+        return None
+    return value
+
+
 def request(
     method: str,
     url: str,
     *,
     max_attempts: int | None = None,
+    token_field: str | None = None,
     **kwargs: object,
 ) -> requests.Response:
     """Perform an HTTP request, retrying transient failures with backoff.
@@ -82,6 +97,9 @@ def request(
     TLS/SSL misconfiguration, ...) propagate immediately.  The final response is
     returned as-is so the caller can inspect non-retryable statuses (e.g. a
     ``401`` carrying a ``WWW-Authenticate`` header, or a rejected bearer token).
+    When ``token_field`` is supplied, successful responses without a usable
+    JSON token are retried within the same budget. Callers must still validate
+    the final response, including its status and token.
 
     Raises the last :class:`requests.RequestException` if every attempt fails
     at the network level.
@@ -109,7 +127,14 @@ def request(
             time.sleep(delay)
             continue
 
-        if resp.status_code in RETRYABLE_STATUS and attempt < attempts:
+        invalid_token = (
+            token_field is not None
+            and 200 <= resp.status_code < 300
+            and response_token(resp, token_field) is None
+        )
+        if (
+            resp.status_code in RETRYABLE_STATUS or invalid_token
+        ) and attempt < attempts:
             delay = _backoff_delay(attempt)
             log.debug(
                 "request %s %s returned HTTP %d (attempt %d/%d), retrying in %.2fs",
@@ -120,6 +145,7 @@ def request(
                 attempts,
                 delay,
             )
+            resp.close()
             time.sleep(delay)
             continue
 
