@@ -65,17 +65,11 @@ def fetch_assertion(audience: str = DEFAULT_AUDIENCE) -> str | None:
                 "Accept": "application/json",
             },
             timeout=30,
+            token_field="value",  # noqa: S106 (JSON field name, not a secret)
         )
         resp.raise_for_status()
     except requests.RequestException:
         log.debug("github oidc: token request failed", exc_info=True)
         return None
 
-    try:
-        payload = resp.json()
-    except ValueError:
-        log.debug("github oidc: response was not valid JSON", exc_info=True)
-        return None
-
-    value = payload.get("value") if isinstance(payload, dict) else None
-    return value if isinstance(value, str) and value else None
+    return _http.response_token(resp, "value")

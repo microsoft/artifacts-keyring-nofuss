@@ -143,11 +143,25 @@ ARTIFACTS_KEYRING_NOFUSS_DEBUG=1 pip install \
 
 ### Transient network failures / flaky CI
 
-Outbound calls (tenant discovery, session-token exchange) are retried with
-exponential backoff on a dropped connection, timeout, or `429`/`5xx` — smoothing
+Outbound calls (including GitHub Actions OIDC acquisition and Entra bearer-token
+minting) are retried with jittered exponential backoff on a dropped connection,
+timeout, or HTTP `429`, `500`, `502`, `503`, or `504` — smoothing
 over blips that previously surfaced as a spurious `401` / "could not find a
 version" error. Default **3 attempts**; override with:
 
 ```bash
 export ARTIFACTS_KEYRING_NOFUSS_RETRIES=5   # 1 disables retries
 ```
+
+The budget applies per HTTP request, is clamped to 1–10 total attempts, and
+includes the initial attempt. Delays are chosen uniformly between zero and
+an exponentially increasing ceiling: 0.5 seconds, 1 second, 2 seconds, up to
+8 seconds. Each token request has a 30-second timeout.
+
+GitHub OIDC and Entra token responses with malformed JSON or a missing, empty,
+non-string, or whitespace-only token are also retried within that same budget.
+Authorization failures (such as HTTP `400`, `401`, or `403`) and TLS errors
+are not retried. After exhaustion, token minting fails closed: `mint-token`
+exits nonzero without emitting a token or writing its output file, and `exec`
+does not launch the wrapped command. An existing output file is left unchanged;
+consumers must check the exit status rather than reuse a stale token file.

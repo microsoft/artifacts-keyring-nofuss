@@ -64,20 +64,14 @@ def mint_bearer(
                 "scope": f"{resource}/.default",
             },
             timeout=30,
+            token_field="access_token",  # noqa: S106 (JSON field name, not a secret)
         )
         resp.raise_for_status()
     except requests.RequestException:
         log.debug("workload identity: token request failed", exc_info=True)
         return None
 
-    try:
-        payload = resp.json()
-    except ValueError:
-        log.debug("workload identity: token response was not valid JSON", exc_info=True)
-        return None
-
-    token = payload.get("access_token") if isinstance(payload, dict) else None
-    return token if isinstance(token, str) and token else None
+    return _http.response_token(resp, "access_token")
 
 
 def _read_assertion() -> str | None:
