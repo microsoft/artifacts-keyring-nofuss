@@ -39,6 +39,7 @@ nav:
   - Scenarios:
       - Local development: local-dev.md
       - pip & uv setup: pip-uv.md
+      - pixi setup: pixi.md
       - GitHub Actions: github-actions.md
       - Docker builds: docker.md
       - GitHub Codespaces: codespaces.md
